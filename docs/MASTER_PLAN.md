@@ -645,16 +645,16 @@ Update this section after each session. Check the box when complete.
 - [x] 0.7 — Audio mixer
 - [x] 0.8 — Deepgram streaming transcriber
 - [x] 0.9 — End-to-end spike integration
-- [ ] HC-4 — User validates transcript quality on real meeting
+- [x] HC-4 — User validates transcript quality on real meeting
 
 ### Phase 1A: Config + Doctor
-- [ ] 1A.1 — Config system
+- [x] 1A.1 — Config system
 - [ ] 1A.2 — Doctor command
 
 ### Phase 1B: Claude Analysis + Obsidian Output
-- [ ] 1B.1 — Claude analyzer
-- [ ] 1B.2 — Obsidian output renderer
-- [ ] 1B.3 — Crash recovery system
+- [x] 1B.1 — Claude analyzer
+- [x] 1B.2 — Obsidian output renderer
+- [x] 1B.3 — Crash recovery system
 
 ### Phase 1C: Full Record Command
 - [ ] 1C.1 — Meeting session orchestrator (production)
