@@ -6,6 +6,7 @@ require (
 	github.com/gen2brain/malgo v0.11.24
 	github.com/gorilla/websocket v1.5.3
 	github.com/spf13/cobra v1.10.2
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

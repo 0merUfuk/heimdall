@@ -28,10 +28,10 @@ coverage.html
 tasks/
 
 # Audio recordings
-recordings/
+/recordings/
 
-# Recovery files
-recovery/
+# Recovery files (runtime data, not source code)
+/recovery/
 
 # Agent memory (local per-developer)
 .claude/agent-memory/
