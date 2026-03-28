@@ -1,7 +1,7 @@
 # Binaries
 bin/
-heimdall
-heimdall-audio
+/heimdall
+/heimdall-audio
 *.exe
 *.dll
 *.so
@@ -39,3 +39,6 @@ recovery/
 # Environment
 .env
 .env.local
+
+# morpheus loop (autonomous development infrastructure)
+.autonomous/
