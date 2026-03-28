@@ -36,6 +36,10 @@ recovery/
 # Agent memory (local per-developer)
 .claude/agent-memory/
 
+# Swift build artifacts
+audio-helper/.build/
+audio-helper/.swiftpm/
+
 # Environment
 .env
 .env.local
