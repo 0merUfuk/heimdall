@@ -1,0 +1,41 @@
+# Binaries
+bin/
+heimdall
+heimdall-audio
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test
+*.test
+*.out
+coverage.html
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Tasks (session-local, per-developer)
+tasks/
+
+# Audio recordings
+recordings/
+
+# Recovery files
+recovery/
+
+# Agent memory (local per-developer)
+.claude/agent-memory/
+
+# Environment
+.env
+.env.local
