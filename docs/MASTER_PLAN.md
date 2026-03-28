@@ -649,7 +649,7 @@ Update this section after each session. Check the box when complete.
 
 ### Phase 1A: Config + Doctor
 - [x] 1A.1 — Config system
-- [ ] 1A.2 — Doctor command
+- [x] 1A.2 — Doctor command
 
 ### Phase 1B: Claude Analysis + Obsidian Output
 - [x] 1B.1 — Claude analyzer
@@ -657,8 +657,8 @@ Update this section after each session. Check the box when complete.
 - [x] 1B.3 — Crash recovery system
 
 ### Phase 1C: Full Record Command
-- [ ] 1C.1 — Meeting session orchestrator (production)
-- [ ] 1C.2 — List + version commands
+- [x] 1C.1 — Meeting session orchestrator (production)
+- [x] 1C.2 — List + version commands
 
 ### Phase 1D: Testing + Security
 - [ ] 1D.1 — Integration tests
