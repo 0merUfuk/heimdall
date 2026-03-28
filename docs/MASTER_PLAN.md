@@ -636,14 +636,14 @@ Tasks:
 Update this section after each session. Check the box when complete.
 
 ### Phase 0: Foundation + Spike
-- [ ] 0.1 — Provision .claude/ ecosystem
-- [ ] 0.2 — Oracle knowledge synthesis
-- [ ] 0.3 — Core type definitions
-- [ ] 0.4 — Microphone capture (malgo)
-- [ ] 0.5 — Swift audio helper
+- [x] 0.1 — Provision .claude/ ecosystem
+- [x] 0.2 — Oracle knowledge synthesis
+- [x] 0.3 — Core type definitions
+- [x] 0.4 — Microphone capture (malgo)
+- [x] 0.5 — Swift audio helper
 - [ ] 0.6 — System audio source (Go subprocess wrapper)
 - [ ] 0.7 — Audio mixer
-- [ ] 0.8 — Deepgram streaming transcriber
+- [x] 0.8 — Deepgram streaming transcriber
 - [ ] 0.9 — End-to-end spike integration
 - [ ] HC-4 — User validates transcript quality on real meeting
 

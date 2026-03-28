@@ -13,6 +13,7 @@
 
 import AVFAudio
 import CoreAudio
+import CoreGraphics
 import Darwin
 import Foundation
 
@@ -167,18 +168,20 @@ private func writeBufferToStdout(_ buffer: AVAudioPCMBuffer) {
 private func runAudioCapture() -> Int32 {
     // --- 1. Create the process tap for system audio ---
     //
-    // CATapDescription captures all system audio except our own process,
-    // preventing feedback loops.
+    // CATapDescription with an empty exclusion list captures all system audio
+    // from all processes. No processes are excluded.
     let tapDescription = CATapDescription(stereoGlobalTapButExcludeProcesses: [])
 
     var tapID: AudioObjectID = 0
     let tapStatus = AudioHardwareCreateProcessTap(tapDescription, &tapID)
 
     guard tapStatus == noErr else {
-        if tapStatus == -1 || tapStatus == kAudioHardwareBadObjectError
-            || tapStatus == kAudioHardwareNotRunningError
-            || tapStatus == kAudioHardwareUnspecifiedError
-        {
+        // Instead of heuristically mapping OSStatus codes (which may vary across
+        // macOS versions), use CGPreflightScreenCaptureAccess() as a reliable
+        // indicator. Screen Recording and Audio Tap permissions are related on
+        // macOS -- if screen capture access is not granted, the process tap
+        // failure is almost certainly a permission issue.
+        if !CGPreflightScreenCaptureAccess() {
             logError(
                 "Screen Recording permission required. Grant in System Settings -> Privacy & Security -> Screen Recording"
             )

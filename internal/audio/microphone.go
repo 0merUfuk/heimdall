@@ -45,6 +45,7 @@ type MicrophoneSource struct {
 	frameCh   chan heimdall.AudioFrame
 	cancelFn  context.CancelFunc
 	started   bool
+	stopped   bool
 	closeOnce sync.Once
 
 	// startTime tracks when recording began for timestamp calculation.
@@ -195,8 +196,20 @@ func (m *MicrophoneSource) Stream() <-chan heimdall.AudioFrame {
 
 // Stop gracefully stops audio capture and closes the Stream channel.
 // Safe to call multiple times (idempotent).
+//
+// IMPORTANT: device.Uninit() joins the audio thread before returning. The onData
+// callback running on that thread acquires m.mu for bytesRead tracking. Holding
+// m.mu across Uninit() would deadlock. Therefore we:
+//  1. Acquire lock, set stopped=true, save device/ctx references, nil them out, cancel context.
+//  2. Release lock.
+//  3. Call device.Uninit() and malgoCtx.Free() OUTSIDE the lock.
 func (m *MicrophoneSource) Stop() error {
 	m.mu.Lock()
+
+	if m.stopped {
+		m.mu.Unlock()
+		return nil
+	}
 
 	// Cancel the context to signal the watchContext goroutine and data callback.
 	if m.cancelFn != nil {
@@ -204,21 +217,28 @@ func (m *MicrophoneSource) Stop() error {
 		m.cancelFn = nil
 	}
 
-	// Stop and uninitialize the device.
-	if m.device != nil {
-		m.device.Uninit()
-		m.device = nil
-	}
-
-	// Uninitialize and free the malgo context.
-	if m.ctx != nil {
-		_ = m.ctx.Uninit()
-		m.ctx.Free()
-		m.ctx = nil
-	}
-
+	// Save references and nil them under the lock so no other call to Stop() will
+	// attempt to uninit the same device/context concurrently.
+	device := m.device
+	malgoCtx := m.ctx
+	m.device = nil
+	m.ctx = nil
 	m.started = false
+	m.stopped = true
 	m.mu.Unlock()
+
+	// Uninitialize device OUTSIDE the lock. Uninit() joins the audio thread, which
+	// may be blocked on m.mu inside onData -- since we already released the lock,
+	// the audio thread can complete and Uninit() returns without deadlock.
+	if device != nil {
+		device.Uninit()
+	}
+
+	// Free the malgo context OUTSIDE the lock.
+	if malgoCtx != nil {
+		_ = malgoCtx.Uninit()
+		malgoCtx.Free()
+	}
 
 	// Close the channel exactly once, draining it first to prevent panics.
 	// sync.Once ensures this is safe even if Stop() is called concurrently.
