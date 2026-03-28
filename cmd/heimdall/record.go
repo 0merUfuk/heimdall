@@ -12,16 +12,21 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/0merUfuk/heimdall/internal/analyzer"
 	"github.com/0merUfuk/heimdall/internal/audio"
+	"github.com/0merUfuk/heimdall/internal/config"
 	"github.com/0merUfuk/heimdall/internal/heimdall"
+	"github.com/0merUfuk/heimdall/internal/output"
 	"github.com/0merUfuk/heimdall/internal/session"
 	"github.com/0merUfuk/heimdall/internal/transcriber"
 )
 
 var (
-	recordTitle    string
-	recordApp      string
-	recordLanguage string
+	recordTitle        string
+	recordApp          string
+	recordLanguage     string
+	recordParticipants string
+	recordKeywords     string
 )
 
 var recordCmd = &cobra.Command{
@@ -45,6 +50,8 @@ func init() {
 	recordCmd.Flags().StringVar(&recordTitle, "title", "", "meeting title (required)")
 	recordCmd.Flags().StringVar(&recordApp, "app", "", "target application for process-specific capture (optional)")
 	recordCmd.Flags().StringVar(&recordLanguage, "language", "en", "transcription language code (e.g., en, tr, multi)")
+	recordCmd.Flags().StringVar(&recordParticipants, "participants", "", "comma-separated list of participant names (hints for speaker identification)")
+	recordCmd.Flags().StringVar(&recordKeywords, "keywords", "", "comma-separated list of context keywords for analysis")
 	_ = recordCmd.MarkFlagRequired("title")
 	rootCmd.AddCommand(recordCmd)
 }
@@ -122,6 +129,69 @@ func runRecord(cmd *cobra.Command, args []string) error {
 
 	// Print summary.
 	printSummary(sess)
+
+	// Stage 5: Analyze via Claude (if API key available).
+	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
+	if anthropicKey != "" && len(sess.Segments()) > 0 {
+		fmt.Println("Generating meeting summary via Claude...")
+
+		// Parse comma-separated participants and keywords.
+		var participants []string
+		if recordParticipants != "" {
+			for _, p := range strings.Split(recordParticipants, ",") {
+				if trimmed := strings.TrimSpace(p); trimmed != "" {
+					participants = append(participants, trimmed)
+				}
+			}
+		}
+		var keywords []string
+		if recordKeywords != "" {
+			for _, k := range strings.Split(recordKeywords, ",") {
+				if trimmed := strings.TrimSpace(k); trimmed != "" {
+					keywords = append(keywords, trimmed)
+				}
+			}
+		}
+
+		claude := analyzer.NewClaudeAnalyzer(anthropicKey)
+		analyzeOpts := heimdall.AnalyzeOpts{
+			Model:        "claude-haiku-4-5",
+			Participants: participants,
+			Keywords:     keywords,
+		}
+
+		analyzeCtx, analyzeCancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer analyzeCancel()
+
+		note, err := claude.Summarize(analyzeCtx, sess.Segments(), analyzeOpts)
+		if err != nil {
+			log.Printf("warning: Claude analysis failed: %v", err)
+		}
+
+		if note != nil {
+			note.Title = recordTitle
+			note.Date = time.Now()
+			note.Duration = sess.Duration()
+
+			// Stage 6: Write to Obsidian vault.
+			cfg, _ := config.Load(config.ConfigPath())
+			if cfg != nil && cfg.Obsidian.VaultPath != "" {
+				writer, err := output.NewObsidianWriter(cfg.Obsidian.VaultPath, cfg.Obsidian.MeetingsFolder, "")
+				if err == nil {
+					path, err := writer.Write(note)
+					if err != nil {
+						log.Printf("warning: failed to write meeting note: %v", err)
+					} else {
+						fmt.Printf("Meeting note saved: %s\n", path)
+					}
+				} else {
+					log.Printf("warning: failed to create obsidian writer: %v", err)
+				}
+			} else {
+				fmt.Println("Obsidian vault not configured -- summary displayed above only")
+			}
+		}
+	}
 
 	return nil
 }
