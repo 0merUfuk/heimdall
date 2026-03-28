@@ -1,0 +1,64 @@
+---
+date: {{.Date.Format "2006-01-02"}}
+type: meeting
+title: "{{.Title}}"
+participants:
+{{- range .Participants}}
+  - "[[{{.Name}}]]"
+{{- end}}
+duration: {{formatDuration .Duration}}
+platform: {{.Platform}}
+tags:
+  - meeting
+{{- if .MeetingType}}
+  - {{.MeetingType}}
+{{- end}}
+---
+
+# {{.Title}}
+
+> Recorded on {{.Date.Format "2006-01-02"}} | Duration: {{formatDuration .Duration}} | Platform: {{.Platform}}
+
+## Summary
+
+{{.Summary}}
+
+## Key Decisions
+
+{{range .Decisions -}}
+- {{.Description}} -- decided by [[{{.DecidedBy}}]] #decision
+{{end}}
+
+## Action Items
+
+| Task | Owner | Deadline | Priority |
+|------|-------|----------|----------|
+{{range .ActionItems -}}
+| {{.Task}} | [[{{.Owner}}]] | {{.Deadline}} | {{.Priority}} |
+{{end}}
+
+## Discussion Topics
+
+{{range .Topics -}}
+### {{.Title}}
+
+{{.Content}}
+
+{{end}}
+
+## Follow-ups
+
+{{range .Followups -}}
+- [ ] {{.Question}} (raised by [[{{.RaisedBy}}]])
+{{end}}
+
+## Raw Transcript
+
+<details>
+<summary>Click to expand full transcript</summary>
+
+{{range .Segments -}}
+**{{speakerName .Speaker $.SpeakerMap}}** ({{.Timestamp}}): {{.Text}}
+{{end}}
+
+</details>
