@@ -641,8 +641,8 @@ Update this section after each session. Check the box when complete.
 - [x] 0.3 — Core type definitions
 - [x] 0.4 — Microphone capture (malgo)
 - [x] 0.5 — Swift audio helper
-- [ ] 0.6 — System audio source (Go subprocess wrapper)
-- [ ] 0.7 — Audio mixer
+- [x] 0.6 — System audio source (Go subprocess wrapper)
+- [x] 0.7 — Audio mixer
 - [x] 0.8 — Deepgram streaming transcriber
 - [ ] 0.9 — End-to-end spike integration
 - [ ] HC-4 — User validates transcript quality on real meeting
