@@ -644,7 +644,7 @@ Update this section after each session. Check the box when complete.
 - [x] 0.6 — System audio source (Go subprocess wrapper)
 - [x] 0.7 — Audio mixer
 - [x] 0.8 — Deepgram streaming transcriber
-- [ ] 0.9 — End-to-end spike integration
+- [x] 0.9 — End-to-end spike integration
 - [ ] HC-4 — User validates transcript quality on real meeting
 
 ### Phase 1A: Config + Doctor
