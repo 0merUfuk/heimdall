@@ -112,10 +112,37 @@ func TestNewMeetingSession(t *testing.T) {
 	sys := newMockAudioSource(48000, 2)
 	tr := newMockTranscriber()
 
-	sess := NewMeetingSession("Test Meeting", sys, mic, tr)
+	sess := NewMeetingSession("Test Meeting", sys, mic, tr, "en")
 
 	if sess.Title() != "Test Meeting" {
 		t.Errorf("expected title 'Test Meeting', got %q", sess.Title())
+	}
+	if sess.language != "en" {
+		t.Errorf("expected language 'en', got %q", sess.language)
+	}
+}
+
+func TestNewMeetingSession_Language(t *testing.T) {
+	tests := []struct {
+		name     string
+		language string
+		want     string
+	}{
+		{"turkish", "tr", "tr"},
+		{"english", "en", "en"},
+		{"multi", "multi", "multi"},
+		{"empty defaults to en", "", "en"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mic := newMockAudioSource(16000, 1)
+			tr := newMockTranscriber()
+			sess := NewMeetingSession("Test", nil, mic, tr, tc.language)
+			if sess.language != tc.want {
+				t.Errorf("language = %q, want %q", sess.language, tc.want)
+			}
+		})
 	}
 }
 
@@ -124,7 +151,7 @@ func TestStartAndStop(t *testing.T) {
 	sys := newMockAudioSource(48000, 2)
 	tr := newMockTranscriber()
 
-	sess := NewMeetingSession("Test", sys, mic, tr)
+	sess := NewMeetingSession("Test", sys, mic, tr, "en")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -152,7 +179,7 @@ func TestStartWithoutSystemAudio(t *testing.T) {
 	tr := newMockTranscriber()
 
 	// Pass nil for system audio.
-	sess := NewMeetingSession("Test", nil, mic, tr)
+	sess := NewMeetingSession("Test", nil, mic, tr, "en")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -177,7 +204,7 @@ func TestSystemAudioFailsFallsBackToMicOnly(t *testing.T) {
 	sys.startErr = context.DeadlineExceeded // simulate failure
 	tr := newMockTranscriber()
 
-	sess := NewMeetingSession("Test", sys, mic, tr)
+	sess := NewMeetingSession("Test", sys, mic, tr, "en")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -200,7 +227,7 @@ func TestSegmentAccumulation(t *testing.T) {
 	sys := newMockAudioSource(48000, 2)
 	tr := newMockTranscriber()
 
-	sess := NewMeetingSession("Test", sys, mic, tr)
+	sess := NewMeetingSession("Test", sys, mic, tr, "en")
 
 	var received []heimdall.Segment
 	var receivedMu sync.Mutex
@@ -260,7 +287,7 @@ func TestTranscriberConnectError(t *testing.T) {
 	tr := newMockTranscriber()
 	tr.connectErr = context.DeadlineExceeded
 
-	sess := NewMeetingSession("Test", sys, mic, tr)
+	sess := NewMeetingSession("Test", sys, mic, tr, "en")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -277,7 +304,7 @@ func TestMicStartError(t *testing.T) {
 	sys := newMockAudioSource(48000, 2)
 	tr := newMockTranscriber()
 
-	sess := NewMeetingSession("Test", sys, mic, tr)
+	sess := NewMeetingSession("Test", sys, mic, tr, "en")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -292,7 +319,7 @@ func TestDuration(t *testing.T) {
 	mic := newMockAudioSource(16000, 1)
 	tr := newMockTranscriber()
 
-	sess := NewMeetingSession("Test", nil, mic, tr)
+	sess := NewMeetingSession("Test", nil, mic, tr, "en")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

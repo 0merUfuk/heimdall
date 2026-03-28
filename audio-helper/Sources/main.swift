@@ -115,7 +115,7 @@ private func startStdinReader() {
 
 // MARK: - Audio Buffer Writer
 
-/// Write interleaved PCM data from an AVAudioPCMBuffer to stdout.
+/// Write interleaved stereo PCM data from an AVAudioPCMBuffer to stdout.
 ///
 /// AVAudioPCMBuffer stores channels in separate arrays (non-interleaved):
 ///   channel 0: [L0, L1, L2, ...]
@@ -123,6 +123,10 @@ private func startStdinReader() {
 ///
 /// We interleave to: [L0, R0, L1, R1, L2, R2, ...]
 /// Each sample is a Float32 (4 bytes). Stereo frame = 8 bytes.
+///
+/// If the buffer is mono (1 channel), the mono data is duplicated to both L and R
+/// channels to produce stereo output. This ensures the Go mixer always receives
+/// stereo (2ch) from the Swift helper regardless of hardware tap format.
 private func writeBufferToStdout(_ buffer: AVAudioPCMBuffer) {
     guard let channelData = buffer.floatChannelData else { return }
     let frameCount = Int(buffer.frameLength)
@@ -130,17 +134,27 @@ private func writeBufferToStdout(_ buffer: AVAudioPCMBuffer) {
 
     if channels == 0 || frameCount == 0 { return }
 
-    // Allocate interleaved buffer: frameCount * channels * sizeof(Float32)
-    let totalSamples = frameCount * channels
+    // Output is always stereo (2 channels), even if input is mono.
+    let outputChannels = 2
+    let totalSamples = frameCount * outputChannels
     let byteCount = totalSamples * MemoryLayout<Float32>.size
 
     let interleaved = UnsafeMutableBufferPointer<Float32>.allocate(capacity: totalSamples)
     defer { interleaved.deallocate() }
 
-    // Interleave: for each frame, write all channels in order.
-    for frame in 0..<frameCount {
-        for ch in 0..<channels {
-            interleaved[frame * channels + ch] = channelData[ch][frame]
+    if channels == 1 {
+        // Mono input: duplicate the single channel to both L and R.
+        let monoData = channelData[0]
+        for frame in 0..<frameCount {
+            let sample = monoData[frame]
+            interleaved[frame * outputChannels]     = sample  // L
+            interleaved[frame * outputChannels + 1] = sample  // R
+        }
+    } else {
+        // Stereo or multichannel input: interleave first two channels.
+        for frame in 0..<frameCount {
+            interleaved[frame * outputChannels]     = channelData[0][frame]  // L
+            interleaved[frame * outputChannels + 1] = channelData[1][frame]  // R
         }
     }
 
@@ -221,11 +235,16 @@ private func runAudioCapture() -> Int32 {
     // Get the input format (may differ from our desired format).
     let inputFormat = inputNode.outputFormat(forBus: 0)
     logError(
-        "input format: \(inputFormat.sampleRate)Hz, \(inputFormat.channelCount)ch"
+        "input format: \(inputFormat.sampleRate)Hz, \(inputFormat.channelCount)ch (expected \(kChannelCount)ch)"
     )
+
+    if inputFormat.channelCount == 1 {
+        logError("mono tap detected -- will duplicate to stereo for Go mixer")
+    }
 
     // Use our desired format if channel count matches, otherwise use the input format.
     // Core Audio will handle any necessary format conversion.
+    // Note: even if the tap is mono, writeBufferToStdout() always outputs stereo.
     let tapFormat = inputFormat.channelCount == kChannelCount ? desiredFormat : inputFormat
 
     // Install a tap on the input node to capture audio buffers.
@@ -255,7 +274,7 @@ private func runAudioCapture() -> Int32 {
     }
 
     logError(
-        "audio capture started: \(tapFormat.sampleRate)Hz, \(tapFormat.channelCount)ch, Float32"
+        "audio capture started: tap=\(tapFormat.sampleRate)Hz/\(tapFormat.channelCount)ch, output=\(kSampleRate)Hz/\(kChannelCount)ch, Float32"
     )
 
     // --- 4. Wait for shutdown signal ---

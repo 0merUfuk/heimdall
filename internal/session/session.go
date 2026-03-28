@@ -24,6 +24,7 @@ import (
 // accumulate segments, and graceful shutdown.
 type MeetingSession struct {
 	title       string
+	language    string
 	system      audio.AudioSource
 	mic         audio.AudioSource
 	mixer       *mixer.Mixer
@@ -47,9 +48,14 @@ type MeetingSession struct {
 // NewMeetingSession creates a new session orchestrator.
 // system may be nil if system audio is not available (mic-only mode).
 // t must be a valid Transcriber instance.
-func NewMeetingSession(title string, system audio.AudioSource, mic audio.AudioSource, t transcriber.Transcriber) *MeetingSession {
+// language is the Deepgram language code (e.g., "en", "tr", "multi").
+func NewMeetingSession(title string, system audio.AudioSource, mic audio.AudioSource, t transcriber.Transcriber, language string) *MeetingSession {
+	if language == "" {
+		language = "en"
+	}
 	return &MeetingSession{
 		title:       title,
+		language:    language,
 		system:      system,
 		mic:         mic,
 		transcriber: t,
@@ -119,7 +125,7 @@ func (s *MeetingSession) Start(ctx context.Context) error {
 	// Stage 3: Connect the transcriber.
 	opts := heimdall.TranscribeOpts{
 		Model:       "nova-3",
-		Language:    "en",
+		Language:    s.language,
 		SampleRate:  16000,
 		Channels:    2,
 		Encoding:    "linear16",

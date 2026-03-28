@@ -152,6 +152,7 @@ func (m *Mixer) readSystemAudio() {
 	defer m.wg.Done()
 
 	stream := m.systemSource.Stream()
+	monoLogged := false
 	for {
 		select {
 		case <-m.ctx.Done():
@@ -160,8 +161,9 @@ func (m *Mixer) readSystemAudio() {
 			if !ok {
 				return
 			}
-			// System audio arrives as 48kHz, 32-bit float, stereo.
+			// System audio arrives as 48kHz, 32-bit float, typically stereo.
 			// Convert: stereo float32 -> mono float32 -> resample 48->16 -> int16.
+			// If mono (e.g., hardware returns 1ch), skip the stereo-to-mono step.
 			floatSamples := BytesToFloat32(frame.Data)
 			if len(floatSamples) == 0 {
 				continue
@@ -171,7 +173,11 @@ func (m *Mixer) readSystemAudio() {
 			if frame.Channels >= 2 {
 				resampled = Resample48to16Mono(floatSamples)
 			} else {
-				// Mono system audio (unusual, but handle it).
+				// Mono system audio -- skip stereo-to-mono, resample directly.
+				if !monoLogged {
+					log.Printf("mixer: system audio is mono (%dch), skipping stereo-to-mono conversion", frame.Channels)
+					monoLogged = true
+				}
 				resampled = Resample48to16(floatSamples)
 			}
 

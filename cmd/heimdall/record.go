@@ -19,8 +19,9 @@ import (
 )
 
 var (
-	recordTitle string
-	recordApp   string
+	recordTitle    string
+	recordApp      string
+	recordLanguage string
 )
 
 var recordCmd = &cobra.Command{
@@ -34,13 +35,16 @@ Press Ctrl+C to stop recording.
 
 Requires DEEPGRAM_API_KEY environment variable.`,
 	Example: `  heimdall record --title "Sprint Planning"
-  heimdall record --title "1:1 with Sarah" --app "Zoom"`,
+  heimdall record --title "1:1 with Sarah" --app "Zoom"
+  heimdall record --title "Standup" --language tr
+  heimdall record --title "Mixed Meeting" --language multi`,
 	RunE: runRecord,
 }
 
 func init() {
 	recordCmd.Flags().StringVar(&recordTitle, "title", "", "meeting title (required)")
 	recordCmd.Flags().StringVar(&recordApp, "app", "", "target application for process-specific capture (optional)")
+	recordCmd.Flags().StringVar(&recordLanguage, "language", "en", "transcription language code (e.g., en, tr, multi)")
 	_ = recordCmd.MarkFlagRequired("title")
 	rootCmd.AddCommand(recordCmd)
 }
@@ -70,7 +74,7 @@ func runRecord(cmd *cobra.Command, args []string) error {
 	dgTranscriber := transcriber.NewDeepgramTranscriber(apiKey)
 
 	// Create the session orchestrator (wires stages 1-4).
-	sess := session.NewMeetingSession(recordTitle, systemSource, micSource, dgTranscriber)
+	sess := session.NewMeetingSession(recordTitle, systemSource, micSource, dgTranscriber, recordLanguage)
 
 	// Register the live display callback.
 	sess.OnSegment(func(seg heimdall.Segment) {
