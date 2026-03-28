@@ -1,0 +1,19 @@
+{
+  "projectName": "heimdall",
+  "projectType": "single-app",
+  "teamSize": "solo",
+  "stacks": [
+    {
+      "name": "go-net-http",
+      "language": "go",
+      "framework": "net-http",
+      "archStyle": "flat",
+      "testingFramework": "go-test",
+      "hasQueue": false,
+      "dataLayer": "none"
+    }
+  ],
+  "isTrypix": false,
+  "createdDate": "2026-03-28",
+  "outputPath": "/Users/omerufuk/repos/heimdall"
+}
