@@ -93,10 +93,12 @@ func Load(path string) (*Config, error) {
 }
 
 // Save writes the config to the given path as YAML. It creates parent
-// directories if they do not exist. The file is written with 0644 permissions.
+// directories if they do not exist. The directory is created with 0700 and
+// the file is written with 0600 permissions (owner-only) because config
+// may contain API key references.
 func (c *Config) Save(path string) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("creating config directory: %w", err)
 	}
 
@@ -105,7 +107,7 @@ func (c *Config) Save(path string) error {
 		return fmt.Errorf("marshaling config: %w", err)
 	}
 
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := os.WriteFile(path, data, 0600); err != nil {
 		return fmt.Errorf("writing config file: %w", err)
 	}
 

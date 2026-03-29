@@ -785,6 +785,64 @@ Duration: {{formatDuration .Duration}}
 	}
 }
 
+// --- Path traversal tests (M-003) ---
+
+func TestWrite_PathTraversal_Blocked(t *testing.T) {
+	vaultPath := t.TempDir()
+
+	// Create a writer with a path-traversal meetings folder.
+	w, err := NewObsidianWriter(vaultPath, "../../etc", "")
+	if err != nil {
+		t.Fatalf("NewObsidianWriter: unexpected error: %v", err)
+	}
+
+	note := testNote()
+	_, err = w.Write(note)
+	if err == nil {
+		t.Fatal("Write should reject path that escapes vault root")
+	}
+	if !strings.Contains(err.Error(), "escapes vault root") {
+		t.Errorf("error should mention 'escapes vault root', got: %v", err)
+	}
+}
+
+func TestWrite_PathTraversal_DotDot(t *testing.T) {
+	vaultPath := t.TempDir()
+
+	w, err := NewObsidianWriter(vaultPath, "../../../Library/somewhere", "")
+	if err != nil {
+		t.Fatalf("NewObsidianWriter: unexpected error: %v", err)
+	}
+
+	note := testNote()
+	_, err = w.Write(note)
+	if err == nil {
+		t.Fatal("Write should reject path with ../ that escapes vault root")
+	}
+	if !strings.Contains(err.Error(), "escapes vault root") {
+		t.Errorf("error should mention 'escapes vault root', got: %v", err)
+	}
+}
+
+func TestWrite_PathTraversal_ValidSubdir(t *testing.T) {
+	vaultPath := t.TempDir()
+
+	// A valid meetings folder should work fine.
+	w, err := NewObsidianWriter(vaultPath, "meetings/archive", "")
+	if err != nil {
+		t.Fatalf("NewObsidianWriter: unexpected error: %v", err)
+	}
+
+	note := testNote()
+	path, err := w.Write(note)
+	if err != nil {
+		t.Fatalf("Write should succeed for valid subdir, got: %v", err)
+	}
+	if !strings.HasPrefix(path, vaultPath) {
+		t.Errorf("output path should be within vault, got: %s", path)
+	}
+}
+
 // --- fileExists tests ---
 
 func TestFileExists(t *testing.T) {
