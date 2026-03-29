@@ -38,7 +38,7 @@
 
 | ID | Task | Status |
 |----|------|--------|
-| 1D.2 | Security review (formal) | NOT STARTED |
+| 1D.2 | Security review (formal) | COMPLETE (PR #6) |
 | 1E.2 | Final review + v1.0.0 release tag | NOT STARTED |
 
 ## Post-v1.0 Roadmap

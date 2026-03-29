@@ -69,7 +69,7 @@ func NewRecoveryWriter(title string, startTime time.Time) (*RecoveryWriter, erro
 // This is primarily used in tests to avoid 30-second waits.
 func NewRecoveryWriterWithInterval(title string, startTime time.Time, interval time.Duration) (*RecoveryWriter, error) {
 	dir := RecoveryDir()
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, fmt.Errorf("creating recovery directory: %w", err)
 	}
 

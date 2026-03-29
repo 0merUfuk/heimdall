@@ -661,11 +661,11 @@ Update this section after each session. Check the box when complete.
 - [x] 1C.2 — List + version commands
 
 ### Phase 1D: Testing + Security
-- [ ] 1D.1 — Integration tests
-- [ ] 1D.2 — Security review
+- [x] 1D.1 — Integration tests
+- [x] 1D.2 — Security review
 
 ### Phase 1E: Distribution + Release
-- [ ] 1E.1 — Distribution setup
+- [x] 1E.1 — Distribution setup
 - [ ] 1E.2 — Final review + release
 
 **Total subtasks**: 19

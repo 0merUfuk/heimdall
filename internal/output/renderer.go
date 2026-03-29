@@ -143,6 +143,14 @@ func (o *ObsidianWriter) Write(note *heimdall.MeetingNote) (string, error) {
 	dateDir := note.Date.Format("2006-01-02")
 	outputDir := filepath.Join(o.vaultPath, o.meetingsFolder, dateDir)
 
+	// M-003: Verify the output path does not escape the vault root.
+	// A malicious meetingsFolder like "../../Library" would write outside the vault.
+	cleanOutput := filepath.Clean(outputDir)
+	cleanVault := filepath.Clean(o.vaultPath)
+	if !strings.HasPrefix(cleanOutput, cleanVault+string(filepath.Separator)) && cleanOutput != cleanVault {
+		return "", fmt.Errorf("obsidian writer: output path %s escapes vault root %s", cleanOutput, cleanVault)
+	}
+
 	// Create the directory tree if it does not exist.
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return "", fmt.Errorf("obsidian writer: creating output directory %s: %w", outputDir, err)
@@ -258,6 +266,13 @@ func atomicWrite(path string, data []byte) error {
 	if _, err := tmp.Write(data); err != nil {
 		tmp.Close()
 		return fmt.Errorf("writing to temp file: %w", err)
+	}
+
+	// L-001: Set explicit permissions instead of relying on umask.
+	// Use 0644 because Obsidian notes should be readable by the user's editor.
+	if err := tmp.Chmod(0644); err != nil {
+		tmp.Close()
+		return fmt.Errorf("setting temp file permissions: %w", err)
 	}
 
 	// Sync to disk before rename to ensure data integrity.

@@ -57,3 +57,6 @@ These are documented trade-offs, not bugs:
 | Config CLI uses simple text prompts, not TUI wizard | Low | Accepted | charmbracelet/huh TUI deferred to v1.1 |
 | Audio package test coverage at 62% | Low | Accepted | Hardware-dependent code (malgo callbacks, subprocess) hard to unit test |
 | Claude analyzer uses raw HTTP, not official SDK | Low | Accepted | Provides better testability via httptest; functionally equivalent |
+| gosec G101: env var templates in defaults.go | Low | False positive | `${DEEPGRAM_API_KEY}` is a template, not a credential |
+| gosec G115: integer overflow in microphone.go/resample.go | Low | Accepted | Values are constants or intentional PCM conversions |
+| gosec G104: unhandled Close/Remove in error paths | Low | Accepted | Standard Go cleanup pattern; primary error already returned |

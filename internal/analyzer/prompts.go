@@ -36,23 +36,81 @@ Respond with a single JSON object (no markdown code fences, no extra text) match
 If there are no decisions, action items, topics, or follow-ups, use empty arrays [].
 If no meeting type is obvious, use "general".`
 
+// maxParticipantLen is the maximum allowed length for a single participant name.
+const maxParticipantLen = 100
+
+// maxKeywordLen is the maximum allowed length for a single keyword.
+const maxKeywordLen = 50
+
+// sanitizePromptInput sanitizes a user-supplied string before embedding it in
+// an LLM prompt. This mitigates prompt injection via --participants/--keywords
+// flags by:
+//   - Stripping newlines and carriage returns (prevents multi-line injection)
+//   - Removing XML/angle-bracket constructs (prevents breaking out of delimiters)
+//   - Truncating to maxLen characters
+func sanitizePromptInput(input string, maxLen int) string {
+	// Strip newlines and carriage returns.
+	s := strings.ReplaceAll(input, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", " ")
+
+	// Remove angle brackets to prevent XML tag injection.
+	s = strings.ReplaceAll(s, "<", "")
+	s = strings.ReplaceAll(s, ">", "")
+
+	// Collapse multiple spaces that may result from replacements.
+	for strings.Contains(s, "  ") {
+		s = strings.ReplaceAll(s, "  ", " ")
+	}
+
+	s = strings.TrimSpace(s)
+
+	// Truncate to max length using rune-aware slicing to avoid splitting
+	// multi-byte UTF-8 characters (e.g., Chinese, Arabic, accented Latin names).
+	runes := []rune(s)
+	if len(runes) > maxLen {
+		s = string(runes[:maxLen])
+	}
+
+	return s
+}
+
 // buildUserPrompt constructs the user-facing prompt from transcript segments and options.
 // The transcript is wrapped in <transcript> tags for prompt injection mitigation (V-014).
+// Participant names and keywords are sanitized before inclusion to prevent prompt
+// injection via those fields (H-001).
 func buildUserPrompt(segments []heimdall.Segment, opts heimdall.AnalyzeOpts) string {
 	var b strings.Builder
 
 	// Include participant hints if provided (V-012).
+	// Sanitize each name to prevent prompt injection (H-001).
 	if len(opts.Participants) > 0 {
-		b.WriteString("Known participants: ")
-		b.WriteString(strings.Join(opts.Participants, ", "))
-		b.WriteString(". Use these names when you can identify speakers from context.\n\n")
+		sanitized := make([]string, 0, len(opts.Participants))
+		for _, p := range opts.Participants {
+			if s := sanitizePromptInput(p, maxParticipantLen); s != "" {
+				sanitized = append(sanitized, s)
+			}
+		}
+		if len(sanitized) > 0 {
+			b.WriteString("Known participants: ")
+			b.WriteString(strings.Join(sanitized, ", "))
+			b.WriteString(". Use these names when you can identify speakers from context.\n\n")
+		}
 	}
 
 	// Include keyword context if provided.
+	// Sanitize each keyword to prevent prompt injection (H-001).
 	if len(opts.Keywords) > 0 {
-		b.WriteString("Meeting context keywords: ")
-		b.WriteString(strings.Join(opts.Keywords, ", "))
-		b.WriteString("\n\n")
+		sanitized := make([]string, 0, len(opts.Keywords))
+		for _, k := range opts.Keywords {
+			if s := sanitizePromptInput(k, maxKeywordLen); s != "" {
+				sanitized = append(sanitized, s)
+			}
+		}
+		if len(sanitized) > 0 {
+			b.WriteString("Meeting context keywords: ")
+			b.WriteString(strings.Join(sanitized, ", "))
+			b.WriteString("\n\n")
+		}
 	}
 
 	// Format transcript with clear delimiters (V-014).
