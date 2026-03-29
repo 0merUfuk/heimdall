@@ -94,6 +94,7 @@ type SystemAudioSource struct {
 	frames     chan heimdall.AudioFrame
 	errCh      chan error // communicates fatal errors from goroutines
 	mu         sync.Mutex
+	wg         sync.WaitGroup // tracks readLoop and watchdog goroutines
 	stopped    bool
 	closeOnce  sync.Once
 	ctx        context.Context
@@ -169,9 +170,11 @@ func (s *SystemAudioSource) Start(ctx context.Context) error {
 	s.startTime = time.Now()
 
 	// Start the reader goroutine that reads PCM data from stdout.
+	s.wg.Add(1)
 	go s.readLoop(captureCtx, proc)
 
 	// Start the watchdog goroutine for crash detection and auto-restart (V-002).
+	s.wg.Add(1)
 	go s.watchdog(captureCtx, helperPath)
 
 	return nil
@@ -210,6 +213,11 @@ func (s *SystemAudioSource) Stop() error {
 
 	s.stopped = true
 	s.mu.Unlock()
+
+	// Wait for readLoop and watchdog goroutines to exit before closing the
+	// channel. This prevents a send-on-closed-channel panic (the race that
+	// the reviewer flagged).
+	s.wg.Wait()
 
 	// Close the channel exactly once, draining first to prevent panics.
 	s.closeOnce.Do(func() {
@@ -354,6 +362,8 @@ func (s *SystemAudioSource) stopProcess(proc *processHandle) error {
 // Each frame is 20ms of audio: 48000 * 2 * 4 * 0.020 = 7680 bytes.
 // Runs until the context is cancelled or stdout is closed (subprocess exit).
 func (s *SystemAudioSource) readLoop(ctx context.Context, proc *processHandle) {
+	defer s.wg.Done()
+
 	buf := make([]byte, systemFrameBytes)
 	var bytesRead int64
 
@@ -418,6 +428,8 @@ func (s *SystemAudioSource) readLoop(ctx context.Context, proc *processHandle) {
 // automatic restart with exponential backoff (V-002).
 // Detects crashes within 2 seconds. Max 3 restart attempts with backoff: 1s, 2s, 4s.
 func (s *SystemAudioSource) watchdog(ctx context.Context, helperPath string) {
+	defer s.wg.Done()
+
 	var restartCount int
 
 	for {
@@ -497,6 +509,7 @@ func (s *SystemAudioSource) watchdog(ctx context.Context, helperPath string) {
 		log.Printf("system audio: helper restarted (gap: %v)", gapDuration)
 
 		// Start a new reader goroutine for the new process.
+		s.wg.Add(1)
 		go s.readLoop(ctx, newProc)
 	}
 }
