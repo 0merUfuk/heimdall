@@ -274,7 +274,7 @@ type Analyzer interface {
 ```
 
 **v1.0 implementations:**
-- `AudioSource`: `CoreAudioTapSource` (macOS system audio), `MalgoMicSource` (microphone)
+- `AudioSource`: `SystemAudioSource` (macOS system audio via Swift subprocess), `MicrophoneSource` (microphone via malgo)
 - `Transcriber`: `DeepgramTranscriber` (WebSocket streaming + diarization)
 - `Analyzer`: `ClaudeAnalyzer` (Haiku 4.5 default, configurable)
 

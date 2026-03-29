@@ -17,6 +17,7 @@ import (
 	"github.com/0merUfuk/heimdall/internal/config"
 	"github.com/0merUfuk/heimdall/internal/heimdall"
 	"github.com/0merUfuk/heimdall/internal/output"
+	"github.com/0merUfuk/heimdall/internal/recovery"
 	"github.com/0merUfuk/heimdall/internal/session"
 	"github.com/0merUfuk/heimdall/internal/transcriber"
 )
@@ -83,15 +84,27 @@ func runRecord(cmd *cobra.Command, args []string) error {
 	// Create the session orchestrator (wires stages 1-4).
 	sess := session.NewMeetingSession(recordTitle, systemSource, micSource, dgTranscriber, recordLanguage)
 
-	// Register the live display callback.
-	sess.OnSegment(func(seg heimdall.Segment) {
-		displaySegment(seg)
-	})
-
 	// Start the session (starts all pipeline stages).
 	if err := sess.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start recording: %w", err)
 	}
+
+	// V-006: Start crash recovery writer (writes segments to disk every 30s).
+	recWriter, err := recovery.NewRecoveryWriter(recordTitle, time.Now())
+	if err != nil {
+		log.Printf("warning: crash recovery unavailable: %v", err)
+	} else {
+		recWriter.Start(ctx)
+		defer recWriter.Stop()
+	}
+
+	// Feed segments to both display and recovery.
+	sess.OnSegment(func(seg heimdall.Segment) {
+		displaySegment(seg)
+		if recWriter != nil && seg.IsFinal {
+			recWriter.AddSegment(seg)
+		}
+	})
 
 	// Print status line.
 	sysStatus := "off"
@@ -99,10 +112,6 @@ func runRecord(cmd *cobra.Command, args []string) error {
 		sysStatus = "on"
 	}
 	fmt.Printf("Audio: system %s  mic on  | STT: deepgram (connected) | recording...\n\n", sysStatus)
-
-	// Start the elapsed time display ticker.
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
 
 	// Wait for interrupt signal.
 	<-ctx.Done()
@@ -183,6 +192,10 @@ func runRecord(cmd *cobra.Command, args []string) error {
 						log.Printf("warning: failed to write meeting note: %v", err)
 					} else {
 						fmt.Printf("Meeting note saved: %s\n", path)
+						// V-006: clean up recovery file after successful write.
+						if recWriter != nil {
+							_ = recWriter.Cleanup()
+						}
 					}
 				} else {
 					log.Printf("warning: failed to create obsidian writer: %v", err)
