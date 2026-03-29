@@ -12,7 +12,17 @@
 - `heimdall record` — full pipeline recording command
 - `heimdall doctor` — prerequisite checker
 - `heimdall list` — past meeting browser
+- `heimdall recover` — scan and re-analyze orphaned recovery transcripts
+- `heimdall analyze --file <path>` — re-analyze a specific transcript file
+- `heimdall config init/get/set` — configuration management commands
 - `heimdall version` — version info
+
+### Security
+- Config file permissions hardened from 0644 to 0600 (owner read/write only)
+- Prompt injection sanitization for `--participants` and `--keywords` flags
+- Directory permissions tightened from 0755 to 0700 for config and recovery directories
+- Path traversal containment in Obsidian vault output writer
+- Explicit file permissions (0600) in atomic recovery writes
 
 ### Architecture
 - 6-stage pipeline: Capture → Mix → Transcribe → Accumulate → Analyze → Render

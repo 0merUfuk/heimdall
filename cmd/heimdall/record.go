@@ -84,12 +84,7 @@ func runRecord(cmd *cobra.Command, args []string) error {
 	// Create the session orchestrator (wires stages 1-4).
 	sess := session.NewMeetingSession(recordTitle, systemSource, micSource, dgTranscriber, recordLanguage)
 
-	// Start the session (starts all pipeline stages).
-	if err := sess.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start recording: %w", err)
-	}
-
-	// V-006: Start crash recovery writer (writes segments to disk every 30s).
+	// V-006: Create crash recovery writer (writes segments to disk every 30s).
 	recWriter, err := recovery.NewRecoveryWriter(recordTitle, time.Now())
 	if err != nil {
 		log.Printf("warning: crash recovery unavailable: %v", err)
@@ -98,13 +93,19 @@ func runRecord(cmd *cobra.Command, args []string) error {
 		defer recWriter.Stop()
 	}
 
-	// Feed segments to both display and recovery.
+	// Register segment callback BEFORE Start to avoid data race.
+	// OnSegment must be called before Start (see session.go contract).
 	sess.OnSegment(func(seg heimdall.Segment) {
 		displaySegment(seg)
 		if recWriter != nil && seg.IsFinal {
 			recWriter.AddSegment(seg)
 		}
 	})
+
+	// Start the session (starts all pipeline stages).
+	if err := sess.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start recording: %w", err)
+	}
 
 	// Print status line.
 	sysStatus := "off"
@@ -144,6 +145,15 @@ func runRecord(cmd *cobra.Command, args []string) error {
 	if anthropicKey != "" && len(sess.Segments()) > 0 {
 		fmt.Println("Generating meeting summary via Claude...")
 
+		// Load config for Claude model and Obsidian vault settings.
+		cfg, _ := config.Load(config.ConfigPath())
+
+		// Determine the Claude model: config value, then fallback to default.
+		model := "claude-haiku-4-5"
+		if cfg != nil && cfg.Claude.Model != "" && !strings.HasPrefix(cfg.Claude.Model, "${") {
+			model = cfg.Claude.Model
+		}
+
 		// Parse comma-separated participants and keywords.
 		var participants []string
 		if recordParticipants != "" {
@@ -164,7 +174,7 @@ func runRecord(cmd *cobra.Command, args []string) error {
 
 		claude := analyzer.NewClaudeAnalyzer(anthropicKey)
 		analyzeOpts := heimdall.AnalyzeOpts{
-			Model:        "claude-haiku-4-5",
+			Model:        model,
 			Participants: participants,
 			Keywords:     keywords,
 		}
@@ -183,7 +193,6 @@ func runRecord(cmd *cobra.Command, args []string) error {
 			note.Duration = sess.Duration()
 
 			// Stage 6: Write to Obsidian vault.
-			cfg, _ := config.Load(config.ConfigPath())
 			if cfg != nil && cfg.Obsidian.VaultPath != "" {
 				writer, err := output.NewObsidianWriter(cfg.Obsidian.VaultPath, cfg.Obsidian.MeetingsFolder, "")
 				if err == nil {
