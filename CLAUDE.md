@@ -39,20 +39,22 @@ Heimdall is a CLI meeting companion: captures audio, transcribes with speaker di
 
 ```
 heimdall/
-├── cmd/heimdall/              # CLI entry point (cobra)
+├── cmd/heimdall/              # CLI commands (record, doctor, list, config, recover, version)
 ├── internal/
-│   ├── audio/                 # AudioSource interface + implementations
-│   ├── transcriber/           # Transcriber interface + Deepgram implementation
-│   ├── analyzer/              # Analyzer interface + Claude implementation
-│   ├── mixer/                 # Audio mixing, resampling, interleaving
-│   ├── output/                # Obsidian template rendering + file writing
-│   ├── config/                # Config loading, validation, wizard
-│   └── recovery/              # Crash recovery (temp files, re-analysis)
-├── audio-helper/              # Swift audio capture binary (future)
+│   ├── heimdall/              # Shared types (AudioFrame, Segment, MeetingNote)
+│   ├── audio/                 # AudioSource interface + MicrophoneSource + SystemAudioSource
+│   ├── transcriber/           # Transcriber interface + DeepgramTranscriber (WebSocket)
+│   ├── analyzer/              # Analyzer interface + ClaudeAnalyzer (Anthropic API)
+│   ├── mixer/                 # Resample 48->16kHz, stereo interleave (L=system, R=mic)
+│   ├── output/                # Writer interface + ObsidianWriter (Go templates)
+│   ├── config/                # Config loading, validation, env var resolution
+│   ├── recovery/              # Crash recovery (atomic temp files every 30s)
+│   └── session/               # MeetingSession orchestrator (wires stages 1-4)
+├── audio-helper/              # Swift audio capture binary (Core Audio Taps)
 ├── templates/                 # Go embed templates for Obsidian output
 ├── docs/
 │   └── architecture/          # All design docs (7 files, 2900+ lines)
-├── .claude/                   # Agent ecosystem
+├── .claude/                   # Agent ecosystem (10 agents, 16 skills, 4 rules)
 ├── go.mod
 ├── Makefile
 └── CLAUDE.md
@@ -136,7 +138,7 @@ type Analyzer interface {
 
 ## Agent Ecosystem
 
-6 agents in `.claude/agents/` for coordinated autonomous development:
+10 agents in `.claude/agents/` for coordinated autonomous development:
 
 | Agent | Model | Role |
 |-------|-------|------|
@@ -146,6 +148,10 @@ type Analyzer interface {
 | `reviewer` | sonnet | Adversarial reviewer — read-only, 3-pass quality gate |
 | `strategist` | opus | Product strategy, technology decisions, competitive research |
 | `security-reviewer` | sonnet | OWASP + ASI security audits — read-only |
+| `product-lead` | opus | CEO perspective — product health, competitive landscape, priorities |
+| `tech-lead` | opus | CTO perspective — codebase health, architecture drift, dependencies |
+| `growth-lead` | opus | CMO perspective — adoption channels, community, content strategy |
+| `architect` | opus | Ecosystem evolution — creates/evolves agents, skills, rules |
 
 **Full pipeline**: `claude --agent manager` → reads MASTER_PLAN.md → spawns developer → tester → reviewer → creates PR.
 
@@ -165,6 +171,12 @@ type Analyzer interface {
 | `/owasp-review` | Security review (OWASP + ASI) |
 | `/secret-scan` | Scan for leaked credentials |
 | `/security-scan` | Full security analysis |
+| `/strategy-weekly` | Weekly tactical brief (git activity, test health, priorities) |
+| `/strategy-monthly` | Monthly deep review (product + tech + growth leads in parallel) |
+| `/session-learn` | Capture session findings, evolve ecosystem |
+| `/provision` | Create/update agents, skills, rules |
+| `/release` | Full release workflow (GoReleaser, tag, publish) |
+| `/pipeline-health` | Check all 6 pipeline stages health |
 
 ---
 

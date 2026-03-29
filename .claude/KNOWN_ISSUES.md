@@ -47,6 +47,13 @@ These are documented trade-offs, not bugs:
 
 ## Implementation Issues
 
-> Add issues discovered during development below.
+> Issues discovered during v1.0 development.
 
-(No implementation issues yet — development has not started.)
+| Issue | Severity | Status | Notes |
+|-------|----------|--------|-------|
+| System audio tap returns mono on some hardware | Medium | Mitigated | Swift helper duplicates mono to stereo; mixer logs mono detection |
+| `TestProactiveReconnection` can hang in CI | Low | Known | Mock WebSocket server timing issue, not a code bug. Underlying logic tested in deepgram_test.go |
+| `TestReconnection_TimestampAdjustment` timing-dependent | Low | Skipped | Covered by `TestTimestampAdjustmentAfterReconnection` in deepgram_test.go |
+| Config CLI uses simple text prompts, not TUI wizard | Low | Accepted | charmbracelet/huh TUI deferred to v1.1 |
+| Audio package test coverage at 62% | Low | Accepted | Hardware-dependent code (malgo callbacks, subprocess) hard to unit test |
+| Claude analyzer uses raw HTTP, not official SDK | Low | Accepted | Provides better testability via httptest; functionally equivalent |

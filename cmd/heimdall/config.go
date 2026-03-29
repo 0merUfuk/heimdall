@@ -179,16 +179,16 @@ func getConfigValue(cfg *config.Config, key string) (string, error) {
 		return "", fmt.Errorf("marshaling config: %w", err)
 	}
 
-	var m map[string]interface{}
+	var m map[string]any
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		return "", fmt.Errorf("parsing config: %w", err)
 	}
 
 	parts := strings.SplitN(key, ".", 2)
-	current := interface{}(m)
+	current := any(m)
 
 	for i, part := range parts {
-		asMap, ok := current.(map[string]interface{})
+		asMap, ok := current.(map[string]any)
 		if !ok {
 			return "", fmt.Errorf("key %q: %s is not a map", key, strings.Join(parts[:i], "."))
 		}

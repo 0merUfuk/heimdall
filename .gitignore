@@ -46,3 +46,13 @@ audio-helper/.swiftpm/
 
 # morpheus loop (autonomous development infrastructure)
 .autonomous/
+
+# Oracle research output (generated, not source)
+.oracle-output/
+
+# Provisioning metadata
+.neo.json
+.trinity.json
+
+# Agent worktrees (ephemeral)
+.claude/worktrees/
