@@ -340,13 +340,14 @@ func (d *DeepgramTranscriber) buildURL() (string, error) {
 		q.Set("encoding", d.opts.Encoding)
 	}
 
-	// AD-007: multichannel for stereo dual-channel audio.
-	// Diarize and multichannel are mutually exclusive in Deepgram — when both
-	// are set, Deepgram returns error responses. With multichannel=true, the
-	// channel index already identifies who is speaking (L=system, R=mic).
+	// Multichannel and diarize are set independently based on TranscribeOpts.
+	// In v1.0 we always send mono (channels=1) with diarize=true, so only
+	// diarize is set here. The independent logic supports future use cases
+	// like per-channel diarization (multichannel + diarize together).
 	if d.opts.Channels > 1 {
 		q.Set("multichannel", "true")
-	} else if d.opts.Diarize {
+	}
+	if d.opts.Diarize {
 		q.Set("diarize", "true")
 	}
 
@@ -452,9 +453,9 @@ func (d *DeepgramTranscriber) responseToSegment(resp deepgramResponse) (heimdall
 	if len(alt.Words) > 0 {
 		speaker = alt.Words[0].Speaker
 	}
-	// In multichannel mode, channel index IS the speaker identity
-	// (L=0=system, R=1=mic per AD-007). This overrides per-word diarization
-	// because Deepgram's per-channel diarization is more reliable.
+	// In multichannel mode, the channel index identifies the speaker source
+	// (0=system audio, 1=mic). In mono+diarize mode (v1.0 default), this
+	// branch is not taken and speaker comes from Deepgram's diarization.
 	if d.opts.Channels > 1 && resp.Channel.Index >= 0 {
 		speaker = resp.Channel.Index
 	}

@@ -665,14 +665,14 @@ func TestBuildURL(t *testing.T) {
 		notWant []string // parameters that must NOT be present
 	}{
 		{
-			name: "stereo multichannel excludes diarize",
+			name: "stereo multichannel with diarize both set",
 			opts: heimdall.TranscribeOpts{
 				Language:    "en",
 				Model:       "nova-3",
 				SampleRate:  16000,
 				Channels:    2,
 				Encoding:    "linear16",
-				Diarize:     true, // should be ignored when Channels > 1
+				Diarize:     true, // both multichannel and diarize are set independently
 				Punctuate:   true,
 				SmartFormat: true,
 				Keywords:    []string{"Kubernetes", "gRPC"},
@@ -686,11 +686,12 @@ func TestBuildURL(t *testing.T) {
 				"punctuate":    "true",
 				"smart_format": "true",
 				"multichannel": "true",
+				"diarize":      "true",
 			},
-			notWant: []string{"diarize=true"},
+			notWant: nil,
 		},
 		{
-			name: "minimal stereo",
+			name: "minimal stereo without diarize",
 			opts: heimdall.TranscribeOpts{
 				Language:   "en",
 				Model:      "nova-3",
@@ -1000,10 +1001,13 @@ func TestConnectURLParameters(t *testing.T) {
 	}
 	defer dt.Close()
 
+	// testOpts() sets Channels=2 and Diarize=true. With independent flag logic,
+	// both multichannel=true and diarize=true should be present in the URL.
 	requiredParams := []string{
 		"model=nova-3",
 		"language=en",
 		"multichannel=true",
+		"diarize=true",
 		"channels=2",
 		"sample_rate=16000",
 		"encoding=linear16",
@@ -1011,20 +1015,9 @@ func TestConnectURLParameters(t *testing.T) {
 		"smart_format=true",
 	}
 
-	// With Channels=2, diarize must NOT be present (mutually exclusive with multichannel).
-	forbiddenParams := []string{
-		"diarize=true",
-	}
-
 	for _, param := range requiredParams {
 		if !strings.Contains(receivedURL, param) {
 			t.Errorf("URL missing parameter %q; got %s", param, receivedURL)
-		}
-	}
-
-	for _, param := range forbiddenParams {
-		if strings.Contains(receivedURL, param) {
-			t.Errorf("URL should NOT contain %q; got %s", param, receivedURL)
 		}
 	}
 }
