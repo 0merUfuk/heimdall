@@ -339,6 +339,107 @@ func TestDuration(t *testing.T) {
 	_ = sess.Stop()
 }
 
+func TestDownmixStereoToMono(t *testing.T) {
+	tests := []struct {
+		name     string
+		frame    heimdall.AudioFrame
+		wantCh   int
+		wantData []int16 // expected mono samples (nil means check frame.Data unchanged)
+	}{
+		{
+			name: "stereo frame is downmixed",
+			frame: heimdall.AudioFrame{
+				// Stereo: L=100, R=200, L=300, R=400
+				Data:       []byte{100, 0, 200, 0, 44, 1, 144, 1}, // int16 LE: 100, 200, 300, 400
+				SampleRate: 16000,
+				Channels:   2,
+				Timestamp:  42 * time.Millisecond,
+			},
+			wantCh:   1,
+			wantData: []int16{150, 350}, // (100+200)/2, (300+400)/2
+		},
+		{
+			name: "mono frame passes through unchanged",
+			frame: heimdall.AudioFrame{
+				Data:       []byte{100, 0, 200, 0},
+				SampleRate: 16000,
+				Channels:   1,
+				Timestamp:  10 * time.Millisecond,
+			},
+			wantCh:   1,
+			wantData: nil, // unchanged
+		},
+		{
+			name: "zero channels passes through unchanged",
+			frame: heimdall.AudioFrame{
+				Data:       []byte{50, 0},
+				SampleRate: 16000,
+				Channels:   0,
+				Timestamp:  0,
+			},
+			wantCh:   0,
+			wantData: nil, // unchanged
+		},
+		{
+			name: "overflow prevention with int32 arithmetic",
+			frame: heimdall.AudioFrame{
+				// L=32000, R=32000 — naive int16 addition would overflow
+				Data:       []byte{0, 125, 0, 125, 0, 131, 0, 131}, // int16 LE: 32000, 32000, -32000, -32000
+				SampleRate: 16000,
+				Channels:   2,
+				Timestamp:  0,
+			},
+			wantCh:   1,
+			wantData: []int16{32000, -32000}, // (32000+32000)/2=32000, (-32000+-32000)/2=-32000
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := downmixStereoToMono(tc.frame)
+
+			if result.Channels != tc.wantCh {
+				t.Errorf("Channels = %d, want %d", result.Channels, tc.wantCh)
+			}
+			if result.SampleRate != tc.frame.SampleRate {
+				t.Errorf("SampleRate = %d, want %d", result.SampleRate, tc.frame.SampleRate)
+			}
+			if result.Timestamp != tc.frame.Timestamp {
+				t.Errorf("Timestamp = %v, want %v", result.Timestamp, tc.frame.Timestamp)
+			}
+
+			if tc.wantData == nil {
+				// Should be unchanged.
+				if len(result.Data) != len(tc.frame.Data) {
+					t.Errorf("Data length = %d, want %d (unchanged)", len(result.Data), len(tc.frame.Data))
+				}
+			} else {
+				// Parse result data back to int16 and compare.
+				// Import mixer indirectly via the function under test.
+				gotSamples := bytesToInt16ForTest(result.Data)
+				if len(gotSamples) != len(tc.wantData) {
+					t.Fatalf("got %d samples, want %d", len(gotSamples), len(tc.wantData))
+				}
+				for i, want := range tc.wantData {
+					if gotSamples[i] != want {
+						t.Errorf("sample[%d] = %d, want %d", i, gotSamples[i], want)
+					}
+				}
+			}
+		})
+	}
+}
+
+// bytesToInt16ForTest is a test helper that converts little-endian bytes to int16 samples.
+func bytesToInt16ForTest(data []byte) []int16 {
+	n := len(data) / 2
+	samples := make([]int16, n)
+	for i := 0; i < n; i++ {
+		samples[i] = int16(data[2*i]) | int16(data[2*i+1])<<8
+	}
+	return samples
+}
+
 func TestSilentSource(t *testing.T) {
 	src := newSilentSource(48000, 2)
 

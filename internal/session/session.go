@@ -145,24 +145,21 @@ func (s *MeetingSession) Start(ctx context.Context) error {
 	}
 
 	// Stage 3: Connect the transcriber.
-	// Determine channel count based on whether system audio is active.
-	// With multichannel (Channels > 1), Deepgram uses channel index for speaker
-	// identity, so diarize is not needed. For mono (mic-only), enable diarize
-	// to distinguish speakers within the single channel.
-	channels := 2
-	diarize := false
-	if s.system == nil {
-		channels = 1
-		diarize = true
-	}
-
+	// Always send mono audio with diarization enabled.
+	// The mixer outputs stereo (L=system, R=mic) which is downmixed to mono
+	// in audioToTranscriber. Deepgram's diarization separates speakers by
+	// voice characteristics, supporting N speakers in a meeting.
+	//
+	// Multichannel mode (channels=2, multichannel=true) was previously used
+	// but limited speaker identification to 2 (one per channel) and caused
+	// duplicate transcription when the system audio tap was mono.
 	opts := heimdall.TranscribeOpts{
 		Model:       "nova-3",
 		Language:    s.language,
 		SampleRate:  16000,
-		Channels:    channels,
+		Channels:    1,
 		Encoding:    "linear16",
-		Diarize:     diarize,
+		Diarize:     true,
 		Punctuate:   true,
 		SmartFormat: true,
 	}
@@ -293,6 +290,10 @@ func (s *MeetingSession) audioToTranscriber() {
 			if !ok {
 				return
 			}
+			// Downmix stereo to mono for diarization mode.
+			// The mixer outputs stereo (L=system, R=mic) per AD-007.
+			// Deepgram diarization works on mono, separating speakers by voice.
+			frame = downmixStereoToMono(frame)
 			if err := s.transcriber.Send(frame); err != nil {
 				if s.ctx.Err() != nil {
 					return // Context cancelled, clean exit.
@@ -344,6 +345,29 @@ func (s *MeetingSession) accumulateSegments() {
 			}
 			return
 		}
+	}
+}
+
+// downmixStereoToMono converts a stereo AudioFrame to mono by averaging
+// the left and right channels. Uses int32 arithmetic to prevent overflow.
+// This is applied before sending to Deepgram when diarization mode is active,
+// so Deepgram receives a single-channel stream with all speakers mixed
+// and can apply voice-based speaker separation.
+func downmixStereoToMono(frame heimdall.AudioFrame) heimdall.AudioFrame {
+	if frame.Channels <= 1 {
+		return frame
+	}
+	stereo := mixer.BytesToInt16(frame.Data)
+	n := len(stereo) / 2
+	mono := make([]int16, n)
+	for i := 0; i < n; i++ {
+		mono[i] = int16((int32(stereo[2*i]) + int32(stereo[2*i+1])) / 2)
+	}
+	return heimdall.AudioFrame{
+		Data:       mixer.Int16ToBytes(mono),
+		SampleRate: frame.SampleRate,
+		Channels:   1,
+		Timestamp:  frame.Timestamp,
 	}
 }
 
