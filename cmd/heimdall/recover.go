@@ -139,7 +139,8 @@ func analyzeRecoveryFile(rf recovery.RecoveryFile, anthropicKey string, cfg *con
 
 	claude := analyzer.NewClaudeAnalyzer(anthropicKey)
 	opts := heimdall.AnalyzeOpts{
-		Model: model,
+		Model:    model,
+		Language: rf.Metadata.Language,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)

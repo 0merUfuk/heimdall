@@ -26,7 +26,7 @@ echo "Anthropic: ${ANTHROPIC_API_KEY:0:8}..."
 ```
 heimdall doctor -- checking prerequisites...
 
-  [pass] macOS 15.x          ← BUG #24: passes on ANY version, never validates ≥14.2
+  [pass] macOS 15.x (>= 14.2 required)
   [pass] Deepgram API key configured
   [pass] Anthropic API key configured
   [pass] heimdall-audio helper found

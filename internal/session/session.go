@@ -122,6 +122,27 @@ func (s *MeetingSession) Start(ctx context.Context) error {
 		return fmt.Errorf("microphone start failed: %w", err)
 	}
 
+	// Monitor system audio for runtime errors (e.g., permission denied, crash exhaustion).
+	// The goroutine is tracked by s.wg to prevent leaks on shutdown.
+	type errorReporter interface {
+		Err() <-chan error
+	}
+	if s.system != nil {
+		if er, ok := s.system.(errorReporter); ok {
+			errCh := er.Err()
+			s.wg.Add(1)
+			go func() {
+				defer s.wg.Done()
+				select {
+				case err := <-errCh:
+					log.Printf("WARNING: system audio failed: %v", err)
+					log.Printf("Recording continues with microphone only.")
+				case <-s.ctx.Done():
+				}
+			}()
+		}
+	}
+
 	// Stage 2: Create and start the mixer.
 	// If system audio is not available, use a silent source placeholder.
 	var systemSource audio.AudioSource

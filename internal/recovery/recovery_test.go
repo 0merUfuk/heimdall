@@ -54,7 +54,7 @@ func TestNewRecoveryWriter(t *testing.T) {
 	defer os.Setenv("HOME", origHome)
 
 	startTime := time.Date(2026, 3, 28, 14, 30, 0, 0, time.UTC)
-	rw, err := NewRecoveryWriter("Sprint Planning", startTime)
+	rw, err := NewRecoveryWriter("Sprint Planning", startTime, "en")
 	if err != nil {
 		t.Fatalf("NewRecoveryWriter: unexpected error: %v", err)
 	}

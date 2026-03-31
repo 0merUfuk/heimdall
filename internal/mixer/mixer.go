@@ -32,9 +32,6 @@ const (
 	// outputChanSize is the buffered channel capacity for output frames.
 	outputChanSize = 100
 
-	// ringBufferSeconds is the ring buffer duration between mixer and consumer.
-	ringBufferSeconds = 30
-
 	// sourceReadTimeout is how long to wait for a frame from a source before
 	// treating it as silence for that cycle.
 	sourceReadTimeout = 50 * time.Millisecond
@@ -46,14 +43,10 @@ const (
 // Pipeline Stage 2 (MIX) per PIPELINE.md. Dual-channel convention (AD-007):
 //   - Left channel  = system audio (remote meeting participants)
 //   - Right channel = microphone (local user)
-//
-// The mixer maintains a 30-second ring buffer between its output and the consumer
-// to absorb network hiccups (V-005).
 type Mixer struct {
 	systemSource audio.AudioSource // 48kHz, 32-bit float, stereo
 	micSource    audio.AudioSource // 16kHz, 16-bit int, mono
 	output       chan heimdall.AudioFrame
-	ringBuffer   *RingBuffer
 	ctx          context.Context
 	cancel       context.CancelFunc
 	mu           sync.Mutex
@@ -95,7 +88,6 @@ func (m *Mixer) Start(ctx context.Context) error {
 
 	m.ctx, m.cancel = context.WithCancel(ctx)
 	m.output = make(chan heimdall.AudioFrame, outputChanSize)
-	m.ringBuffer = NewRingBuffer(ringBufferSeconds, outputSampleRate, outputChannels)
 	m.sysBuf = nil
 	m.micBuf = nil
 	m.elapsed = 0
@@ -136,9 +128,6 @@ func (m *Mixer) Stop() error {
 
 	// Wait for all goroutines to finish.
 	m.wg.Wait()
-
-	// Close the ring buffer so any blocked reader unblocks.
-	m.ringBuffer.Close()
 
 	// Close output channel. At this point no goroutine is writing to it.
 	close(m.output)

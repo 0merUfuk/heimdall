@@ -187,7 +187,7 @@ func (d *DeepgramTranscriber) Connect(ctx context.Context, opts heimdall.Transcr
 
 	d.wg.Add(3)
 	go d.readLoop(conn, currentConnID)
-	go d.keepAliveLoop()
+	go d.keepAliveLoop(currentConnID)
 	go d.reconnectTimer()
 
 	return nil
@@ -475,7 +475,10 @@ func (d *DeepgramTranscriber) responseToSegment(resp deepgramResponse) (heimdall
 
 // keepAliveLoop sends KeepAlive messages at the configured interval
 // to prevent the Deepgram idle timeout (NET-0001 error).
-func (d *DeepgramTranscriber) keepAliveLoop() {
+// Each loop is scoped to a specific connection identified by myConnID.
+// When the connection is replaced (by reconnection), this goroutine exits
+// so that stale keepAliveLoop goroutines do not accumulate.
+func (d *DeepgramTranscriber) keepAliveLoop(myConnID uint64) {
 	defer d.wg.Done()
 
 	ticker := time.NewTicker(d.keepAliveInterval)
@@ -487,6 +490,10 @@ func (d *DeepgramTranscriber) keepAliveLoop() {
 			return
 		case <-ticker.C:
 			d.mu.Lock()
+			if d.connID != myConnID {
+				d.mu.Unlock()
+				return // Connection was replaced, exit this keepAliveLoop.
+			}
 			conn := d.conn
 			closed := d.closed
 			d.mu.Unlock()
@@ -568,7 +575,7 @@ func (d *DeepgramTranscriber) proactiveReconnect() {
 	// Start readLoop and keepAliveLoop for the new connection.
 	d.wg.Add(2)
 	go d.readLoop(newConn, newConnID)
-	go d.keepAliveLoop()
+	go d.keepAliveLoop(newConnID)
 
 	// Close old connection -- this will cause the old readLoop to exit.
 	// The old readLoop checks connID and will not trigger handleDisconnect
@@ -668,7 +675,7 @@ func (d *DeepgramTranscriber) handleDisconnect(failedConn *websocket.Conn, origi
 		// Restart the readLoop and keepAliveLoop for the new connection.
 		d.wg.Add(2)
 		go d.readLoop(newConn, newConnID)
-		go d.keepAliveLoop()
+		go d.keepAliveLoop(newConnID)
 		return
 	}
 

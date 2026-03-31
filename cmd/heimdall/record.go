@@ -82,7 +82,7 @@ func runRecord(cmd *cobra.Command, args []string) error {
 	sess := session.NewMeetingSession(recordTitle, systemSource, micSource, dgTranscriber, recordLanguage)
 
 	// V-006: Create crash recovery writer (writes segments to disk every 30s).
-	recWriter, err := recovery.NewRecoveryWriter(recordTitle, time.Now())
+	recWriter, err := recovery.NewRecoveryWriter(recordTitle, time.Now(), recordLanguage)
 	if err != nil {
 		log.Printf("warning: crash recovery unavailable: %v", err)
 	} else {

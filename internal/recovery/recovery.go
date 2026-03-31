@@ -51,6 +51,7 @@ type RecoveryWriter struct {
 	segments []heimdall.Segment
 	metadata RecoveryMetadata
 	interval time.Duration
+	stopped  bool // set by Stop; prevents race with concurrent Cleanup
 	cleaned  bool // set by Cleanup; prevents Stop from re-creating the file
 }
 
@@ -65,13 +66,15 @@ func RecoveryDir() string {
 
 // NewRecoveryWriter creates a new recovery writer that persists segments to
 // the recovery directory. It creates the directory if it does not exist.
-func NewRecoveryWriter(title string, startTime time.Time) (*RecoveryWriter, error) {
-	return NewRecoveryWriterWithInterval(title, startTime, DefaultWriteInterval)
+// The language parameter is stored in metadata so the recovery/analyze path
+// can pass it through to Claude (Bug #23 fix).
+func NewRecoveryWriter(title string, startTime time.Time, language string) (*RecoveryWriter, error) {
+	return NewRecoveryWriterWithInterval(title, startTime, language, DefaultWriteInterval)
 }
 
 // NewRecoveryWriterWithInterval creates a recovery writer with a custom write interval.
 // This is primarily used in tests to avoid 30-second waits.
-func NewRecoveryWriterWithInterval(title string, startTime time.Time, interval time.Duration) (*RecoveryWriter, error) {
+func NewRecoveryWriterWithInterval(title string, startTime time.Time, language string, interval time.Duration) (*RecoveryWriter, error) {
 	dir := RecoveryDir()
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, fmt.Errorf("creating recovery directory: %w", err)
@@ -88,6 +91,7 @@ func NewRecoveryWriterWithInterval(title string, startTime time.Time, interval t
 		metadata: RecoveryMetadata{
 			Title:     title,
 			StartTime: startTime,
+			Language:  language,
 			Platform:  runtime.GOOS,
 		},
 		interval: interval,
@@ -132,10 +136,11 @@ func (r *RecoveryWriter) writeLoop(ctx context.Context) {
 // the recovery file that was just deleted.
 func (r *RecoveryWriter) Stop() error {
 	r.mu.Lock()
-	if r.cleaned {
+	if r.cleaned || r.stopped {
 		r.mu.Unlock()
 		return nil
 	}
+	r.stopped = true
 	r.mu.Unlock()
 	return r.Flush()
 }

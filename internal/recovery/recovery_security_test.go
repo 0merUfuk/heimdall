@@ -16,7 +16,7 @@ func TestNewRecoveryWriter_DirectoryPermissions_M002(t *testing.T) {
 	t.Setenv("HOME", tmpHome)
 
 	startTime := time.Date(2026, 3, 28, 10, 0, 0, 0, time.UTC)
-	rw, err := NewRecoveryWriter("perm dir test", startTime)
+	rw, err := NewRecoveryWriter("perm dir test", startTime, "en")
 	if err != nil {
 		t.Fatalf("NewRecoveryWriter: unexpected error: %v", err)
 	}
@@ -42,14 +42,14 @@ func TestNewRecoveryWriter_DirectoryPermissions_ExistingDir(t *testing.T) {
 
 	// Create the directory first (simulating a previous writer run).
 	startTime := time.Date(2026, 3, 28, 10, 0, 0, 0, time.UTC)
-	rw1, err := NewRecoveryWriter("first run", startTime)
+	rw1, err := NewRecoveryWriter("first run", startTime, "en")
 	if err != nil {
 		t.Fatalf("first NewRecoveryWriter: %v", err)
 	}
 
 	// Create a second writer — it must not change the permissions to be wider.
 	startTime2 := time.Date(2026, 3, 28, 11, 0, 0, 0, time.UTC)
-	_, err = NewRecoveryWriter("second run", startTime2)
+	_, err = NewRecoveryWriter("second run", startTime2, "en")
 	if err != nil {
 		t.Fatalf("second NewRecoveryWriter: %v", err)
 	}
