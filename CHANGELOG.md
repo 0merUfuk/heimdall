@@ -17,6 +17,28 @@
 - `heimdall config init/get/set` — configuration management commands
 - `heimdall version` — version info
 
+### Bug Fixes (31-bug sweep, PR #8)
+- Fixed root cause of empty transcription: `diarize=true` and `multichannel=true` conflict
+- Deepgram error responses now logged (were silently discarded)
+- Config `ResolveEnvVars()` now called (env var paths were used literally)
+- System audio permission denied now surfaces as a visible warning
+- Recovery file no longer re-created after cleanup on clean exit
+- `--language multi` correctly maps to Deepgram `detect_language=true`
+- Removed dead `--app` flag (was accepted but never wired)
+- Removed dead ring buffer code from mixer
+- Fixed 5-second Ctrl+C shutdown delay (Close before cancel)
+- Fixed `Close()` hang at 55-minute reconnection boundary
+- Fixed concurrent write race in proactive reconnection
+- keepAlive loop restarted after reconnection (was permanently lost)
+- Channel index used as speaker ID in multichannel mode
+- Turkish characters preserved in filenames (Unicode-aware regex)
+- Claude analysis language-aware for non-English meetings
+- Doctor now validates macOS >= 14.2 (was cosmetic check)
+- Processed recovery files deleted after successful re-analysis
+- Duration captured before shutdown (was inflated by stop time)
+- Fallback stdout output when Obsidian writer fails
+- `mip_opt_out=true` sent to Deepgram (privacy opt-out)
+
 ### Security
 - Config file permissions hardened from 0644 to 0600 (owner read/write only)
 - Prompt injection sanitization for `--participants` and `--keywords` flags
