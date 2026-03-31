@@ -93,23 +93,6 @@ func (s *MeetingSession) Start(ctx context.Context) error {
 		} else {
 			s.systemAvailable = true
 
-			// Monitor fatal errors from system audio (V-002, V-003).
-			// Err() is specific to SystemAudioSource — use type assertion
-			// to avoid breaking the AudioSource interface contract.
-			type errProvider interface {
-				Err() <-chan error
-			}
-			if sysWithErr, ok := s.system.(errProvider); ok {
-				errCh := sysWithErr.Err()
-				go func() {
-					select {
-					case err := <-errCh:
-						log.Printf("WARNING: system audio failed: %v", err)
-						log.Printf("Recording continues with microphone only.")
-					case <-s.ctx.Done():
-					}
-				}()
-			}
 		}
 	}
 
