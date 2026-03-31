@@ -65,8 +65,9 @@ func speakerName(speaker int, speakerMap map[int]string) string {
 // infinite loops in pathological cases.
 const maxCollisionAttempts = 1000
 
-// sanitizePattern matches characters that are not alphanumeric or hyphens.
-var sanitizePattern = regexp.MustCompile(`[^a-z0-9-]+`)
+// sanitizePattern matches characters that are not Unicode letters, digits, or hyphens.
+// Uses \p{L} to preserve non-ASCII letters (e.g., Turkish ç,ğ,ı,ö,ş,ü).
+var sanitizePattern = regexp.MustCompile(`[^\p{L}\p{N}-]+`)
 
 // multiHyphenPattern matches consecutive hyphens.
 var multiHyphenPattern = regexp.MustCompile(`-{2,}`)

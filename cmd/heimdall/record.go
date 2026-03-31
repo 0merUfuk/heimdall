@@ -24,7 +24,6 @@ import (
 
 var (
 	recordTitle        string
-	recordApp          string
 	recordLanguage     string
 	recordParticipants string
 	recordKeywords     string
@@ -41,7 +40,6 @@ Press Ctrl+C to stop recording.
 
 Requires DEEPGRAM_API_KEY environment variable.`,
 	Example: `  heimdall record --title "Sprint Planning"
-  heimdall record --title "1:1 with Sarah" --app "Zoom"
   heimdall record --title "Standup" --language tr
   heimdall record --title "Mixed Meeting" --language multi`,
 	RunE: runRecord,
@@ -49,7 +47,6 @@ Requires DEEPGRAM_API_KEY environment variable.`,
 
 func init() {
 	recordCmd.Flags().StringVar(&recordTitle, "title", "", "meeting title (required)")
-	recordCmd.Flags().StringVar(&recordApp, "app", "", "target application for process-specific capture (optional)")
 	recordCmd.Flags().StringVar(&recordLanguage, "language", "en", "transcription language code (e.g., en, tr, multi)")
 	recordCmd.Flags().StringVar(&recordParticipants, "participants", "", "comma-separated list of participant names (hints for speaker identification)")
 	recordCmd.Flags().StringVar(&recordKeywords, "keywords", "", "comma-separated list of context keywords for analysis")
@@ -119,6 +116,10 @@ func runRecord(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("\n\nStopping recording...\n")
 
+	// Capture duration BEFORE Stop() — Stop() can take several seconds which
+	// would inflate the reported recording duration.
+	recordedDuration := sess.Duration()
+
 	// Stop the session with a timeout to prevent hanging.
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer stopCancel()
@@ -146,10 +147,18 @@ func runRecord(cmd *cobra.Command, args []string) error {
 		fmt.Println("Generating meeting summary via Claude...")
 
 		// Load config for Claude model and Obsidian vault settings.
-		cfg, _ := config.Load(config.ConfigPath())
+		cfg, err := config.Load(config.ConfigPath())
+		if err != nil {
+			log.Printf("warning: failed to load config: %v", err)
+		}
+		if cfg != nil {
+			if err := cfg.ResolveEnvVars(); err != nil {
+				log.Printf("warning: resolving config env vars: %v", err)
+			}
+		}
 
 		// Determine the Claude model: config value, then fallback to default.
-		model := "claude-haiku-4-5"
+		model := analyzer.DefaultModel
 		if cfg != nil && cfg.Claude.Model != "" && !strings.HasPrefix(cfg.Claude.Model, "${") {
 			model = cfg.Claude.Model
 		}
@@ -175,6 +184,7 @@ func runRecord(cmd *cobra.Command, args []string) error {
 		claude := analyzer.NewClaudeAnalyzer(anthropicKey)
 		analyzeOpts := heimdall.AnalyzeOpts{
 			Model:        model,
+			Language:     recordLanguage,
 			Participants: participants,
 			Keywords:     keywords,
 		}
@@ -190,7 +200,8 @@ func runRecord(cmd *cobra.Command, args []string) error {
 		if note != nil {
 			note.Title = recordTitle
 			note.Date = time.Now()
-			note.Duration = sess.Duration()
+			note.Duration = recordedDuration
+			note.Platform = "desktop"
 
 			// Stage 6: Write to Obsidian vault.
 			if cfg != nil && cfg.Obsidian.VaultPath != "" {
@@ -208,6 +219,14 @@ func runRecord(cmd *cobra.Command, args []string) error {
 					}
 				} else {
 					log.Printf("warning: failed to create obsidian writer: %v", err)
+					// Fallback: print summary to stdout so analysis is not lost.
+					fmt.Printf("\n--- Meeting Summary ---\n%s\n", note.Summary)
+					if len(note.ActionItems) > 0 {
+						fmt.Println("\nAction Items:")
+						for _, ai := range note.ActionItems {
+							fmt.Printf("  - %s (owner: %s)\n", ai.Task, ai.Owner)
+						}
+					}
 				}
 			} else {
 				fmt.Println("Obsidian vault not configured -- summary displayed above only")

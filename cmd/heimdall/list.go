@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -36,6 +37,13 @@ func runList(cmd *cobra.Command, args []string) error {
 	}
 
 	vaultPath := config.ExpandHome(cfg.Obsidian.VaultPath)
+
+	// Validate --since format before walking.
+	if listSince != "" {
+		if _, err := time.Parse("2006-01-02", listSince); err != nil {
+			return fmt.Errorf("invalid --since format: %q (expected YYYY-MM-DD)", listSince)
+		}
+	}
 
 	meetingsDir := filepath.Join(vaultPath, cfg.Obsidian.MeetingsFolder)
 	if _, err := os.Stat(meetingsDir); os.IsNotExist(err) {

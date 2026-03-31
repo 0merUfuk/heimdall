@@ -140,18 +140,36 @@ func runConfigGet(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
-	val, err := getConfigValue(cfg, key)
+	// Show the raw (unresolved) value first.
+	rawVal, err := getConfigValue(cfg, key)
 	if err != nil {
 		return err
 	}
 
-	fmt.Println(val)
+	// Resolve env vars so the user sees the actual value.
+	_ = cfg.ResolveEnvVars()
+	resolvedVal, _ := getConfigValue(cfg, key)
+
+	if rawVal != resolvedVal {
+		fmt.Printf("%s (raw: %s)\n", resolvedVal, rawVal)
+	} else {
+		fmt.Println(resolvedVal)
+	}
 	return nil
 }
 
 func runConfigSet(cmd *cobra.Command, args []string) error {
 	key := args[0]
 	value := args[1]
+
+	// Warn if storing a plaintext API key instead of an env var reference.
+	if key == "deepgram.api_key" || key == "claude.api_key" {
+		if !strings.HasPrefix(value, "${") {
+			fmt.Println("Warning: API keys should be stored as environment variable references.")
+			fmt.Printf("  Recommended: heimdall config set %s '${ENV_VAR_NAME}'\n", key)
+			fmt.Println("  The value you provided will be stored as-is in the config file.")
+		}
+	}
 
 	cfgPath := config.ConfigPath()
 	cfg, err := config.Load(cfgPath)

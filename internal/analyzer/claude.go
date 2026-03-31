@@ -18,8 +18,9 @@ import (
 var _ Analyzer = (*ClaudeAnalyzer)(nil)
 
 const (
-	// defaultModel is the default Claude model for meeting analysis.
-	defaultModel = "claude-haiku-4-5"
+	// DefaultModel is the default Claude model for meeting analysis.
+	// Exported so that CLI commands (record, recover) use a single source of truth.
+	DefaultModel = "claude-haiku-4-5"
 
 	// defaultBaseURL is the Anthropic Messages API endpoint.
 	defaultBaseURL = "https://api.anthropic.com"
@@ -98,7 +99,7 @@ func (c *ClaudeAnalyzer) Summarize(ctx context.Context, segments []heimdall.Segm
 
 	model := opts.Model
 	if model == "" {
-		model = defaultModel
+		model = DefaultModel
 	}
 
 	userPrompt := buildUserPrompt(segments, opts)

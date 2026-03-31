@@ -242,9 +242,10 @@ func (m *Mixer) produceMixedFrame() {
 	// Extract mic samples.
 	micSamples := m.drainMicSamples(samplesPerFrame)
 
-	// If both are empty, skip this frame entirely (no audio to mix).
+	// If both are empty, send silence to maintain continuous PCM flow to Deepgram.
 	if len(sysSamples) == 0 && len(micSamples) == 0 {
-		return
+		sysSamples = make([]int16, samplesPerFrame)
+		micSamples = make([]int16, samplesPerFrame)
 	}
 
 	// Pad shorter slice with silence if needed.
@@ -272,12 +273,6 @@ func (m *Mixer) produceMixedFrame() {
 	case m.output <- frame:
 	default:
 		log.Printf("mixer: output channel full, frame dropped at %v", frame.Timestamp)
-	}
-
-	// Also write to ring buffer for consumer buffering (V-005).
-	if !m.ringBuffer.Write(frame) {
-		// Oldest frame was dropped from ring buffer — this is expected under
-		// backpressure and logged at debug level only.
 	}
 }
 
@@ -325,11 +320,3 @@ func (m *Mixer) drainMicSamples(n int) []int16 {
 	return samples
 }
 
-// RingBuffer returns the mixer's ring buffer for direct consumer access.
-// The consumer (e.g., Deepgram transcriber) reads from this buffer to get
-// frames with backpressure absorption.
-func (m *Mixer) RingBuffer() *RingBuffer {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.ringBuffer
-}

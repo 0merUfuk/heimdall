@@ -242,10 +242,10 @@ private func runAudioCapture() -> Int32 {
         logError("mono tap detected -- will duplicate to stereo for Go mixer")
     }
 
-    // Use our desired format if channel count matches, otherwise use the input format.
-    // Core Audio will handle any necessary format conversion.
-    // Note: even if the tap is mono, writeBufferToStdout() always outputs stereo.
-    let tapFormat = inputFormat.channelCount == kChannelCount ? desiredFormat : inputFormat
+    // Always use our desired format (48kHz stereo float32) for the tap.
+    // Core Audio will handle any necessary format conversion from the input format.
+    // This ensures consistent output regardless of the hardware's native format.
+    let tapFormat = desiredFormat
 
     // Install a tap on the input node to capture audio buffers.
     inputNode.installTap(onBus: 0, bufferSize: kBufferSize, format: tapFormat) { buffer, _ in

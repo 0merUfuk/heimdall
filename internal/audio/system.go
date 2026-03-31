@@ -42,6 +42,10 @@ const (
 
 	// systemFrameBytes is the expected byte count per frame chunk.
 	// 48000 samples/sec * 0.020 sec * 2 channels * 4 bytes/sample = 7680 bytes.
+	// Note: The Swift helper writes in 4096-frame bursts (~85ms at 48kHz stereo).
+	// Go reads exactly 7680 bytes (20ms). io.ReadFull correctly reassembles
+	// partial reads, so this size mismatch creates bursty delivery but does not
+	// affect correctness.
 	systemFrameBytes = 7680
 
 	// systemStreamBufferSize is the channel buffer capacity in frames.

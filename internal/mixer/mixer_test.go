@@ -855,49 +855,48 @@ func TestMixer_StreamReturnsStereoFrameFormat(t *testing.T) {
 	mixer.Stop()
 }
 
-func TestMixer_RingBufferReceivesFrames(t *testing.T) {
+func TestMixer_SilenceOnEmptyBothSources(t *testing.T) {
+	// When both sources have no data, the mixer should produce silence frames
+	// to maintain continuous PCM flow to Deepgram.
 	sys := newMockSource(48000, 2)
 	mic := newMockSource(16000, 1)
 
-	mixer := NewMixer(sys, mic)
+	m := NewMixer(sys, mic)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	if err := mixer.Start(ctx); err != nil {
+	if err := m.Start(ctx); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 
-	// Send a frame pair.
-	sysFloats := make([]float32, 960*2)
-	sys.sendFrame(heimdall.AudioFrame{
-		Data:       float32ToBytes(sysFloats),
-		SampleRate: 48000,
-		Channels:   2,
-	})
-	mic.sendFrame(heimdall.AudioFrame{
-		Data:       Int16ToBytes(make([]int16, 320)),
-		SampleRate: 16000,
-		Channels:   1,
-	})
-
-	// Drain the output channel so the mixer produces the frame.
-	stream := mixer.Stream()
+	// Don't send any audio data to either source.
+	// The mixer should still produce silence frames.
+	stream := m.Stream()
 	select {
-	case <-stream:
+	case frame := <-stream:
+		// Verify this is a valid silence frame.
+		if frame.SampleRate != outputSampleRate {
+			t.Errorf("SampleRate = %d, want %d", frame.SampleRate, outputSampleRate)
+		}
+		if frame.Channels != outputChannels {
+			t.Errorf("Channels = %d, want %d", frame.Channels, outputChannels)
+		}
+		// All samples should be zero (silence).
+		stereo := BytesToInt16(frame.Data)
+		for i, s := range stereo {
+			if s != 0 {
+				t.Errorf("sample[%d] = %d, want 0 (silence)", i, s)
+				break
+			}
+		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("Timed out waiting for output")
-	}
-
-	// The ring buffer should also have the frame.
-	rb := mixer.RingBuffer()
-	if rb.Len() < 1 {
-		t.Error("Ring buffer should have received at least one frame")
+		t.Fatal("Timed out waiting for silence frame")
 	}
 
 	sys.Stop()
 	mic.Stop()
-	mixer.Stop()
+	m.Stop()
 }
 
 // --- Test Helpers ---
