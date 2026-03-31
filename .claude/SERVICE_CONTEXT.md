@@ -1,6 +1,6 @@
-**Version**: 2.0
+**Version**: 3.0
 **Created**: 2026-03-28
-**Last Updated**: 2026-03-29
+**Last Updated**: 2026-03-31
 **Authors:** Omer Ufuk
 
 ---
@@ -9,12 +9,25 @@
 
 ## Current State
 
-v1.0 implementation complete. All 19 MASTER_PLAN subtasks executed. Full 6-stage pipeline functional.
+v1.0 implementation complete. 31-bug sweep merged (PR #8). Pipeline tested and verified. Ready for real-voice smoke testing and v1.0.0 tag.
 
-- **Status**: v1.0.0-dev -- feature complete, pre-release
-- **Execution plan**: `docs/MASTER_PLAN.md` -- 19/19 subtasks executed
+- **Status**: v1.0.0-rc -- all bugs fixed, pending smoke test + release tag
+- **Execution plan**: `docs/MASTER_PLAN.md` -- 19/19 subtasks complete
+- **Strategy**: `docs/STRATEGY_V2.md` -- post-grill execution plan
 - **Build**: `make build` produces `bin/heimdall` (Go) + `bin/heimdall-audio` (Swift)
 - **Tests**: 9 packages, all passing with `-race`
+
+---
+
+## Key PRs (merged to main)
+
+| PR | Description |
+|----|-------------|
+| #8 | **31-bug sweep** -- root cause fix (diarize+multichannel), error visibility, 25 more fixes |
+| #7 | Final review -- data race fix, config-aware model, CHANGELOG |
+| #6 | Security review -- file permissions, prompt sanitization, path traversal |
+| #5 | Integration tests, LICENSE, distribution config |
+| #1-4 | Phase 0-1 implementation (all pipeline stages) |
 
 ---
 
@@ -24,7 +37,7 @@ v1.0 implementation complete. All 19 MASTER_PLAN subtasks executed. Full 6-stage
 |---------|---------|-----------|
 | `internal/heimdall` | Shared types (AudioFrame, Segment, MeetingNote) | types.go |
 | `internal/audio` | AudioSource interface + MicrophoneSource + SystemAudioSource | source.go, microphone.go, system.go |
-| `internal/mixer` | Resample 48->16kHz, interleave stereo (L=system, R=mic) | mixer.go, resample.go, ring_buffer.go |
+| `internal/mixer` | Resample 48->16kHz, interleave stereo (L=system, R=mic) | mixer.go, resample.go |
 | `internal/transcriber` | Transcriber interface + DeepgramTranscriber (WebSocket) | transcriber.go, deepgram.go |
 | `internal/analyzer` | Analyzer interface + ClaudeAnalyzer (Anthropic API) | analyzer.go, claude.go, prompts.go |
 | `internal/output` | Writer interface + ObsidianWriter (Go templates) | writer.go, renderer.go |
@@ -40,26 +53,9 @@ v1.0 implementation complete. All 19 MASTER_PLAN subtasks executed. Full 6-stage
 | Command | Purpose |
 |---------|---------|
 | `heimdall record --title "..."` | Full pipeline recording |
-| `heimdall doctor` | Check prerequisites |
+| `heimdall doctor` | Check prerequisites (validates macOS >= 14.2) |
 | `heimdall list` | List past meeting notes |
 | `heimdall config init/get/set` | Configuration management |
 | `heimdall recover` | Scan for orphaned recovery files |
 | `heimdall analyze --file <path>` | Re-analyze a transcript |
 | `heimdall version` | Print version info |
-
----
-
-## Agent Ecosystem
-
-| Agent | Role |
-|-------|------|
-| manager | Orchestrator -- spawns agents, manages handoffs |
-| developer | Senior Go engineer -- implements code |
-| tester | QA engineer -- writes tests |
-| reviewer | Adversarial code reviewer -- read-only |
-| strategist | Product strategy, research |
-| security-reviewer | OWASP + ASI security audits |
-| product-lead | CEO perspective -- product health, priorities |
-| tech-lead | CTO perspective -- codebase health, architecture |
-| growth-lead | CMO perspective -- adoption, community |
-| architect | Ecosystem evolution -- agents, skills, rules |

@@ -1,31 +1,28 @@
-**Version**: 1.0
+**Version**: 2.0
 **Created**: 2026-03-28
-**Last Updated**: 2026-03-28
+**Last Updated**: 2026-03-31
 **Authors:** Omer Ufuk
 
 ---
 
-# Heimdall — Known Issues
+# Heimdall -- Known Issues
 
 > Full vulnerability assessment (28 findings): `docs/architecture/ASSESSMENT.md`
+> Grill report (20-agent audit): `docs/GRILL_REPORT.md`
 
 ---
 
-## v1.0 Must-Fix Vulnerabilities
+## Resolved in PR #8 (31-bug sweep)
 
-These must be addressed during implementation. Each is mapped to a MASTER_PLAN subtask.
+All critical and warning bugs identified in the comprehensive audit have been fixed. See `CHANGELOG.md` for the full list.
 
-| ID | Title | Severity | Effort | Addressed In |
-|----|-------|----------|--------|-------------|
-| V-001 | Deepgram WebSocket 60-min timeout — proactive reconnection at 55 min | Critical | Large | 0.8 |
-| V-002 | Swift subprocess crash — detect within 2s, auto-restart with gap tracking | Critical | Medium | 0.6 |
-| V-003 | Screen Recording permission — check before recording, clear guidance | Critical | Small | 1A.2 |
-| V-005 | Network disruption — ring buffer + exponential backoff reconnection | High | Large (overlaps V-001) | 0.8 |
-| V-006 | SIGKILL crash recovery — temp file writes every 30 seconds | High | Medium | 1B.3 |
-| V-009 | Claude API retry + fallback to raw transcript on failure | High | Medium | 1B.1 |
-| V-017 | File naming collision in vault — append suffix | Low | Small | 1B.2 |
-| V-019 | macOS version check (>= 14.2) at startup | Low | Small | 1A.2 |
-| V-020 | Microphone permission check before recording | Low | Small | 1A.2 |
+Key fixes:
+- Root cause of empty transcription (diarize+multichannel conflict)
+- Deepgram error visibility (was completely silent)
+- System audio permission denied now surfaces warning
+- 5-second Ctrl+C delay eliminated
+- Ring buffer dead code removed
+- Recovery file lifecycle fixed
 
 ---
 
@@ -33,30 +30,35 @@ These must be addressed during implementation. Each is mapped to a MASTER_PLAN s
 
 These are documented trade-offs, not bugs:
 
-| ID | Limitation | Mitigation |
-|----|-----------|-----------|
-| V-004 | Speaker ID resets on WebSocket reconnection | Re-map via LLM in post-meeting analysis (AD-008) |
-| V-010 | No local ASR fallback | Document Deepgram dependency clearly |
-| V-011 | System audio requires macOS 14.2+ | Document in README, `doctor` checks version |
-| V-012 | Speaker identification ~80% accurate | Provide `--participants` hint flag |
-| V-013 | LLM may hallucinate action items | Anti-hallucination prompt engineering |
-| V-014 | Transcript content as prompt injection vector | Delimiter wrapping + system prompt guardrails |
-| V-018 | No real-time editing of speaker names | Deferred to v2.0 |
+| Limitation | Mitigation |
+|-----------|-----------|
+| Speaker ID resets on WebSocket reconnection | Channel index used as speaker ID in multichannel mode (AD-008) |
+| No local ASR fallback in v1.0 | Planned for v2.0 (Whisper.cpp) |
+| System audio requires macOS 14.2+ | Doctor validates version, clear error message |
+| Deepgram Turkish code-switching not supported | `--keywords` flag for English tech terms in Turkish meetings |
+| LLM may hallucinate action items | Anti-hallucination prompt engineering (V-013) |
+| Transcript content as prompt injection vector | Delimiter wrapping + sanitized --participants/--keywords (V-014) |
+| Stereo billing doubles Deepgram cost | Documented in README cost table |
 
 ---
 
-## Implementation Issues
+## Accepted Technical Debt
 
-> Issues discovered during v1.0 development.
+| Item | Severity | Notes |
+|------|----------|-------|
+| `ring_buffer.go` exists but is unused | Low | Kept as reusable type for future V-005 reconnection buffering |
+| `go.mod` says `go 1.25.6` (doesn't exist) | Low | Works with current toolchain, cosmetic issue |
+| Config CLI uses simple text prompts, not TUI | Low | charmbracelet/huh TUI deferred |
+| Audio package test coverage ~62% | Low | Hardware-dependent code hard to unit test |
+| Claude analyzer uses raw HTTP, not official SDK | Low | Better testability via httptest |
+| gorilla/websocket in maintenance mode | Low | Stable, consider migrating to coder/websocket in v2+ |
 
-| Issue | Severity | Status | Notes |
-|-------|----------|--------|-------|
-| System audio tap returns mono on some hardware | Medium | Mitigated | Swift helper duplicates mono to stereo; mixer logs mono detection |
-| `TestProactiveReconnection` can hang in CI | Low | Known | Mock WebSocket server timing issue, not a code bug. Underlying logic tested in deepgram_test.go |
-| `TestReconnection_TimestampAdjustment` timing-dependent | Low | Skipped | Covered by `TestTimestampAdjustmentAfterReconnection` in deepgram_test.go |
-| Config CLI uses simple text prompts, not TUI wizard | Low | Accepted | charmbracelet/huh TUI deferred to v1.1 |
-| Audio package test coverage at 62% | Low | Accepted | Hardware-dependent code (malgo callbacks, subprocess) hard to unit test |
-| Claude analyzer uses raw HTTP, not official SDK | Low | Accepted | Provides better testability via httptest; functionally equivalent |
-| gosec G101: env var templates in defaults.go | Low | False positive | `${DEEPGRAM_API_KEY}` is a template, not a credential |
-| gosec G115: integer overflow in microphone.go/resample.go | Low | Accepted | Values are constants or intentional PCM conversions |
-| gosec G104: unhandled Close/Remove in error paths | Low | Accepted | Standard Go cleanup pattern; primary error already returned |
+---
+
+## Accepted gosec Findings
+
+| Rule | Finding | Rationale |
+|------|---------|-----------|
+| G101 | Env var templates in defaults.go | False positive: `${DEEPGRAM_API_KEY}` is a template |
+| G115 | Integer overflow in microphone.go/resample.go | Values are constants or intentional PCM conversions |
+| G104 | Unhandled Close/Remove in error paths | Standard Go cleanup pattern |

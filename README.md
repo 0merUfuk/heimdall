@@ -16,7 +16,7 @@ Named after the Norse god who could hear grass growing.
 ## Requirements
 
 - macOS 14.2+ (required for Core Audio Taps system audio capture)
-- Go 1.25+
+- Go 1.24+ (or the version specified in go.mod)
 - Deepgram API key ([get one free](https://console.deepgram.com/))
 - Anthropic API key (optional -- required for meeting analysis)
 
@@ -64,8 +64,8 @@ Record a meeting with live transcription.
 ```bash
 heimdall record --title "Sprint Planning"
 heimdall record --title "1:1 with Sarah" --participants "Sarah"
-heimdall record --title "Team Sync" --app "Zoom"
 heimdall record --title "Meeting" --language tr
+heimdall record --title "Mixed Meeting" --language multi
 heimdall record --title "Meeting" --keywords "Kubernetes,gRPC"
 ```
 
@@ -73,8 +73,7 @@ heimdall record --title "Meeting" --keywords "Kubernetes,gRPC"
 |------|-------------|
 | `--title` | Meeting title (required) |
 | `--participants` | Comma-separated participant names (hints for speaker ID) |
-| `--app` | Target application for process-specific capture |
-| `--language` | Transcription language code (default: `en`) |
+| `--language` | Transcription language code (default: `en`, use `multi` for auto-detect) |
 | `--keywords` | Comma-separated context keywords |
 
 ### `heimdall doctor`
@@ -176,19 +175,21 @@ Claude fails     -> Write raw transcript (no summary, no action items)
 Deepgram fails   -> Save raw audio to recovery file
 Audio fails      -> Clean exit with clear error message
 Swift crashes    -> Detect within 2s, auto-restart (max 3 retries)
-Network drops    -> Buffer in ring buffer, reconnect with backoff
+Network drops    -> Reconnect with exponential backoff (1s, 2s, 4s... max 30s)
 Process killed   -> Recovery file written every 30s, recoverable
 ```
 
 ## Cost Per Meeting
 
-| Duration | Deepgram (STT + diarization) | Claude Haiku (summary) | Total |
-|----------|------------------------------|------------------------|-------|
-| 30 min | $0.29 | $0.011 | $0.30 |
-| 1 hour | $0.58 | $0.022 | $0.60 |
-| 2 hours | $1.16 | $0.044 | $1.20 |
+heimdall sends stereo audio (2 channels). Deepgram bills multichannel at 2x the mono rate.
 
-Deepgram offers $200 free credit -- enough for approximately 345 one-hour meetings.
+| Duration | Deepgram (stereo + diarization) | Claude Haiku (summary) | Total |
+|----------|--------------------------------|------------------------|-------|
+| 30 min | $0.58 | $0.01 | ~$0.59 |
+| 1 hour | $1.16 | $0.02 | ~$1.18 |
+| 2 hours | $2.32 | $0.04 | ~$2.36 |
+
+Deepgram offers $200 free credit -- enough for approximately 170 one-hour meetings.
 
 ## Project Structure
 
@@ -209,6 +210,21 @@ heimdall/
   templates/              Embedded Go templates for Obsidian output
   docs/architecture/      Design docs (pipeline, decisions, MVP, vulnerabilities)
 ```
+
+## Privacy and Data Flow
+
+heimdall sends meeting data to two external services:
+
+| Data | Destination | Retention | Training |
+|------|-------------|-----------|----------|
+| Raw audio (PCM) | Deepgram (US) via WebSocket | Zero after processing | No (mip_opt_out=true) |
+| Meeting transcript | Anthropic (US) via HTTPS | 7 days (API policy) | Never (API data excluded) |
+| Meeting notes | Your local Obsidian vault | You control | N/A |
+| Recovery files | `~/.heimdall/recovery/` (local) | Until cleanup | N/A |
+
+heimdall does not store audio or transcripts on any server it controls. API keys are stored as environment variable references, never in plaintext config files.
+
+**Recording consent**: Meeting recording may be subject to consent laws in your jurisdiction. In the US, 12+ states require all-party consent. In the EU, participants must generally be informed. Please ensure all meeting participants are aware that recording is active.
 
 ## License
 
