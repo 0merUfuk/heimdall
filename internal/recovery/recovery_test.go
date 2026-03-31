@@ -54,7 +54,7 @@ func TestNewRecoveryWriter(t *testing.T) {
 	defer os.Setenv("HOME", origHome)
 
 	startTime := time.Date(2026, 3, 28, 14, 30, 0, 0, time.UTC)
-	rw, err := NewRecoveryWriter("Sprint Planning", startTime)
+	rw, err := NewRecoveryWriter("Sprint Planning", startTime, "en")
 	if err != nil {
 		t.Fatalf("NewRecoveryWriter: unexpected error: %v", err)
 	}
@@ -487,6 +487,42 @@ func TestRecoveryDir_ReturnsExpectedPath(t *testing.T) {
 	dir := RecoveryDir()
 	if !strings.HasSuffix(dir, filepath.Join(".heimdall", "recovery")) {
 		t.Errorf("RecoveryDir: got %q, want suffix .heimdall/recovery", dir)
+	}
+}
+
+// TestStopAfterCleanup_DoesNotRecreatFile verifies that calling Stop after
+// Cleanup does not re-create the recovery file (Bug #5 fix).
+func TestStopAfterCleanup_DoesNotRecreateFile(t *testing.T) {
+	rw := newTestWriter(t, "stop-after-cleanup")
+	rw.AddSegment(testSegment(0, "data", 0))
+
+	if err := rw.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+
+	// File should exist after flush.
+	if _, err := os.Stat(rw.FilePath()); os.IsNotExist(err) {
+		t.Fatal("recovery file should exist after Flush")
+	}
+
+	// Cleanup deletes the file and sets the cleaned flag.
+	if err := rw.Cleanup(); err != nil {
+		t.Fatalf("Cleanup: %v", err)
+	}
+
+	// File should be gone after cleanup.
+	if _, err := os.Stat(rw.FilePath()); !os.IsNotExist(err) {
+		t.Fatal("recovery file should not exist after Cleanup")
+	}
+
+	// Stop should NOT re-create the file.
+	if err := rw.Stop(); err != nil {
+		t.Fatalf("Stop after Cleanup: unexpected error: %v", err)
+	}
+
+	// File should still be gone.
+	if _, err := os.Stat(rw.FilePath()); !os.IsNotExist(err) {
+		t.Error("recovery file should NOT exist after Stop following Cleanup (Bug #5)")
 	}
 }
 

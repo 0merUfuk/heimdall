@@ -29,7 +29,7 @@ func TestRecoveryIntegration_CrashSimulation(t *testing.T) {
 	startTime := time.Date(2026, 3, 28, 14, 30, 0, 0, time.UTC)
 
 	// Step 1: Create writer and add segments (simulates recording session).
-	rw, err := NewRecoveryWriter("Sprint Planning", startTime)
+	rw, err := NewRecoveryWriter("Sprint Planning", startTime, "en")
 	if err != nil {
 		t.Fatalf("NewRecoveryWriter: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestRecoveryIntegration_CleanShutdownDeletesFile(t *testing.T) {
 
 	startTime := time.Date(2026, 3, 28, 15, 0, 0, 0, time.UTC)
 
-	rw, err := NewRecoveryWriter("Clean Shutdown Meeting", startTime)
+	rw, err := NewRecoveryWriter("Clean Shutdown Meeting", startTime, "en")
 	if err != nil {
 		t.Fatalf("NewRecoveryWriter: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestRecoveryIntegration_PeriodicWriteWithCrash(t *testing.T) {
 
 	startTime := time.Date(2026, 3, 28, 16, 0, 0, 0, time.UTC)
 
-	rw, err := NewRecoveryWriterWithInterval("Periodic Test", startTime, 50*time.Millisecond)
+	rw, err := NewRecoveryWriterWithInterval("Periodic Test", startTime, "en", 50*time.Millisecond)
 	if err != nil {
 		t.Fatalf("NewRecoveryWriterWithInterval: %v", err)
 	}

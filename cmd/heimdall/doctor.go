@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -28,14 +29,26 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	passed := 0
 	total := 0
 
-	// Check macOS version.
+	// Check macOS version (>= 14.2 required for system audio capture).
 	total++
 	if runtime.GOOS == "darwin" {
 		out, err := exec.Command("sw_vers", "-productVersion").Output()
 		if err == nil {
 			ver := strings.TrimSpace(string(out))
-			fmt.Printf("  [pass] macOS %s\n", ver)
-			passed++
+			parts := strings.Split(ver, ".")
+			major, minor := 0, 0
+			if len(parts) >= 1 {
+				fmt.Sscanf(parts[0], "%d", &major)
+			}
+			if len(parts) >= 2 {
+				fmt.Sscanf(parts[1], "%d", &minor)
+			}
+			if major > 14 || (major == 14 && minor >= 2) {
+				fmt.Printf("  [pass] macOS %s (>= 14.2 required)\n", ver)
+				passed++
+			} else {
+				fmt.Printf("  [FAIL] macOS %s (>= 14.2 required for system audio capture)\n", ver)
+			}
 		} else {
 			fmt.Printf("  [FAIL] Could not determine macOS version\n")
 		}
@@ -70,8 +83,8 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		// Check next to the heimdall binary.
 		exePath, _ := os.Executable()
 		if exePath != "" {
-			dir := exePath[:strings.LastIndex(exePath, "/")]
-			if _, err := os.Stat(dir + "/heimdall-audio"); err == nil {
+			dir := filepath.Dir(exePath)
+			if _, err := os.Stat(filepath.Join(dir, "heimdall-audio")); err == nil {
 				fmt.Printf("  [pass] heimdall-audio helper found\n")
 				passed++
 			} else {
@@ -85,6 +98,10 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	// Check Obsidian vault.
 	total++
 	cfg, err := config.Load(config.ConfigPath())
+	if err == nil {
+		// Resolve env vars so ${VAULT_PATH} references work.
+		_ = cfg.ResolveEnvVars()
+	}
 	if err == nil && cfg.Obsidian.VaultPath != "" {
 		expandedPath := config.ExpandHome(cfg.Obsidian.VaultPath)
 		if info, err := os.Stat(expandedPath); err == nil && info.IsDir() {

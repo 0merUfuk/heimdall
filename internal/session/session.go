@@ -92,6 +92,7 @@ func (s *MeetingSession) Start(ctx context.Context) error {
 			s.system = nil
 		} else {
 			s.systemAvailable = true
+
 		}
 	}
 
@@ -102,6 +103,27 @@ func (s *MeetingSession) Start(ctx context.Context) error {
 			_ = s.system.Stop()
 		}
 		return fmt.Errorf("microphone start failed: %w", err)
+	}
+
+	// Monitor system audio for runtime errors (e.g., permission denied, crash exhaustion).
+	// The goroutine is tracked by s.wg to prevent leaks on shutdown.
+	type errorReporter interface {
+		Err() <-chan error
+	}
+	if s.system != nil {
+		if er, ok := s.system.(errorReporter); ok {
+			errCh := er.Err()
+			s.wg.Add(1)
+			go func() {
+				defer s.wg.Done()
+				select {
+				case err := <-errCh:
+					log.Printf("WARNING: system audio failed: %v", err)
+					log.Printf("Recording continues with microphone only.")
+				case <-s.ctx.Done():
+				}
+			}()
+		}
 	}
 
 	// Stage 2: Create and start the mixer.
@@ -123,13 +145,24 @@ func (s *MeetingSession) Start(ctx context.Context) error {
 	}
 
 	// Stage 3: Connect the transcriber.
+	// Determine channel count based on whether system audio is active.
+	// With multichannel (Channels > 1), Deepgram uses channel index for speaker
+	// identity, so diarize is not needed. For mono (mic-only), enable diarize
+	// to distinguish speakers within the single channel.
+	channels := 2
+	diarize := false
+	if s.system == nil {
+		channels = 1
+		diarize = true
+	}
+
 	opts := heimdall.TranscribeOpts{
 		Model:       "nova-3",
 		Language:    s.language,
 		SampleRate:  16000,
-		Channels:    2,
+		Channels:    channels,
 		Encoding:    "linear16",
-		Diarize:     true,
+		Diarize:     diarize,
 		Punctuate:   true,
 		SmartFormat: true,
 	}
@@ -155,25 +188,31 @@ func (s *MeetingSession) Start(ctx context.Context) error {
 }
 
 // Stop gracefully shuts down the pipeline in reverse order:
-//  1. Cancel the context (signals all goroutines)
-//  2. Close the transcriber (sends CloseStream, waits for final results)
+//  1. Close the transcriber (sends CloseStream, waits for final results)
+//  2. Cancel the context (signals all goroutines to stop)
 //  3. Stop the mixer
 //  4. Stop audio sources
 //
+// The transcriber is closed BEFORE cancelling the context so the CloseStream/
+// final-results exchange completes on a live context. Cancelling first would
+// cause the readLoop to exit before receiving final results, adding a 5-second
+// timeout delay on every Ctrl+C.
+//
 // Returns the first error encountered during shutdown.
 func (s *MeetingSession) Stop() error {
-	// Cancel context to signal goroutines to stop sending new data.
-	if s.cancel != nil {
-		s.cancel()
-	}
-
-	// Close transcriber first -- sends CloseStream and waits for final results.
-	// This must happen before stopping the mixer so any in-flight data is processed.
+	// Close transcriber FIRST -- sends CloseStream and waits for final results.
+	// This must happen before cancelling context so the readLoop can still
+	// process the final results response from Deepgram.
 	var firstErr error
 	if s.transcriber != nil {
 		if err := s.transcriber.Close(); err != nil {
 			firstErr = fmt.Errorf("transcriber close: %w", err)
 		}
+	}
+
+	// THEN cancel context to signal all other goroutines to stop.
+	if s.cancel != nil {
+		s.cancel()
 	}
 
 	// Stop the mixer.

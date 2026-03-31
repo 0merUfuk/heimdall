@@ -81,6 +81,11 @@ func runRecover(cmd *cobra.Command, args []string) error {
 
 	// Process each recovery file.
 	cfg, _ := config.Load(config.ConfigPath())
+	if cfg != nil {
+		if err := cfg.ResolveEnvVars(); err != nil {
+			log.Printf("warning: resolving config env vars: %v", err)
+		}
+	}
 
 	for _, rf := range files {
 		fmt.Printf("\nProcessing: %s (%s)...\n", rf.Metadata.Title, rf.Metadata.StartTime.Format("2006-01-02 15:04"))
@@ -109,6 +114,11 @@ func runAnalyze(cmd *cobra.Command, args []string) error {
 	}
 
 	cfg, _ := config.Load(config.ConfigPath())
+	if cfg != nil {
+		if err := cfg.ResolveEnvVars(); err != nil {
+			log.Printf("warning: resolving config env vars: %v", err)
+		}
+	}
 
 	return analyzeRecoveryFile(*rf, anthropicKey, cfg)
 }
@@ -122,14 +132,15 @@ func analyzeRecoveryFile(rf recovery.RecoveryFile, anthropicKey string, cfg *con
 	}
 
 	// Determine the Claude model to use.
-	model := "claude-haiku-4-5"
+	model := analyzer.DefaultModel
 	if cfg != nil && cfg.Claude.Model != "" && !strings.HasPrefix(cfg.Claude.Model, "${") {
 		model = cfg.Claude.Model
 	}
 
 	claude := analyzer.NewClaudeAnalyzer(anthropicKey)
 	opts := heimdall.AnalyzeOpts{
-		Model: model,
+		Model:    model,
+		Language: rf.Metadata.Language,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
@@ -169,6 +180,13 @@ func analyzeRecoveryFile(rf recovery.RecoveryFile, anthropicKey string, cfg *con
 		}
 
 		fmt.Printf("  Meeting note saved: %s\n", path)
+
+		// Delete the recovery file after successful write.
+		if rf.Path != "" {
+			if err := os.Remove(rf.Path); err != nil && !os.IsNotExist(err) {
+				log.Printf("warning: failed to delete recovery file %s: %v", rf.Path, err)
+			}
+		}
 	} else {
 		fmt.Println("  Obsidian vault not configured -- displaying summary only:")
 		fmt.Printf("\n  Title: %s\n  Summary: %s\n", note.Title, note.Summary)

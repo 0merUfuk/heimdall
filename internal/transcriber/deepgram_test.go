@@ -659,19 +659,20 @@ func TestTimestampAdjustmentAfterReconnection(t *testing.T) {
 
 func TestBuildURL(t *testing.T) {
 	tests := []struct {
-		name string
-		opts heimdall.TranscribeOpts
-		want map[string]string
+		name    string
+		opts    heimdall.TranscribeOpts
+		want    map[string]string
+		notWant []string // parameters that must NOT be present
 	}{
 		{
-			name: "full options",
+			name: "stereo multichannel excludes diarize",
 			opts: heimdall.TranscribeOpts{
 				Language:    "en",
 				Model:       "nova-3",
 				SampleRate:  16000,
 				Channels:    2,
 				Encoding:    "linear16",
-				Diarize:     true,
+				Diarize:     true, // should be ignored when Channels > 1
 				Punctuate:   true,
 				SmartFormat: true,
 				Keywords:    []string{"Kubernetes", "gRPC"},
@@ -682,14 +683,14 @@ func TestBuildURL(t *testing.T) {
 				"sample_rate":  "16000",
 				"channels":     "2",
 				"encoding":     "linear16",
-				"diarize":      "true",
 				"punctuate":    "true",
 				"smart_format": "true",
 				"multichannel": "true",
 			},
+			notWant: []string{"diarize=true"},
 		},
 		{
-			name: "minimal options",
+			name: "minimal stereo",
 			opts: heimdall.TranscribeOpts{
 				Language:   "en",
 				Model:      "nova-3",
@@ -705,9 +706,30 @@ func TestBuildURL(t *testing.T) {
 				"encoding":     "linear16",
 				"multichannel": "true",
 			},
+			notWant: []string{"diarize=true"},
 		},
 		{
-			name: "no diarize no punctuate",
+			name: "mono with diarize",
+			opts: heimdall.TranscribeOpts{
+				Language:   "en",
+				Model:      "nova-3",
+				SampleRate: 16000,
+				Channels:   1,
+				Encoding:   "linear16",
+				Diarize:    true,
+			},
+			want: map[string]string{
+				"language":    "en",
+				"model":       "nova-3",
+				"sample_rate": "16000",
+				"channels":    "1",
+				"encoding":    "linear16",
+				"diarize":     "true",
+			},
+			notWant: []string{"multichannel=true"},
+		},
+		{
+			name: "mono without diarize",
 			opts: heimdall.TranscribeOpts{
 				Language:   "en",
 				Model:      "nova-3",
@@ -716,13 +738,29 @@ func TestBuildURL(t *testing.T) {
 				Encoding:   "linear16",
 			},
 			want: map[string]string{
-				"language":     "en",
-				"model":        "nova-3",
-				"sample_rate":  "16000",
-				"channels":     "1",
-				"encoding":     "linear16",
-				"multichannel": "true",
+				"language":    "en",
+				"model":       "nova-3",
+				"sample_rate": "16000",
+				"channels":    "1",
+				"encoding":    "linear16",
 			},
+			notWant: []string{"multichannel=true", "diarize=true"},
+		},
+		{
+			name: "multi language uses detect_language",
+			opts: heimdall.TranscribeOpts{
+				Language:   "multi",
+				Model:      "nova-3",
+				SampleRate: 16000,
+				Channels:   2,
+				Encoding:   "linear16",
+			},
+			want: map[string]string{
+				"detect_language": "true",
+				"model":           "nova-3",
+				"multichannel":    "true",
+			},
+			notWant: []string{"language=multi"},
 		},
 	}
 
@@ -739,6 +777,12 @@ func TestBuildURL(t *testing.T) {
 			for key, expectedValue := range tt.want {
 				if !strings.Contains(urlStr, key+"="+expectedValue) {
 					t.Errorf("URL missing %s=%s; got %s", key, expectedValue, urlStr)
+				}
+			}
+
+			for _, notWanted := range tt.notWant {
+				if strings.Contains(urlStr, notWanted) {
+					t.Errorf("URL should NOT contain %s; got %s", notWanted, urlStr)
 				}
 			}
 		})
@@ -959,7 +1003,6 @@ func TestConnectURLParameters(t *testing.T) {
 	requiredParams := []string{
 		"model=nova-3",
 		"language=en",
-		"diarize=true",
 		"multichannel=true",
 		"channels=2",
 		"sample_rate=16000",
@@ -968,9 +1011,20 @@ func TestConnectURLParameters(t *testing.T) {
 		"smart_format=true",
 	}
 
+	// With Channels=2, diarize must NOT be present (mutually exclusive with multichannel).
+	forbiddenParams := []string{
+		"diarize=true",
+	}
+
 	for _, param := range requiredParams {
 		if !strings.Contains(receivedURL, param) {
 			t.Errorf("URL missing parameter %q; got %s", param, receivedURL)
+		}
+	}
+
+	for _, param := range forbiddenParams {
+		if strings.Contains(receivedURL, param) {
+			t.Errorf("URL should NOT contain %q; got %s", param, receivedURL)
 		}
 	}
 }
@@ -1023,5 +1077,50 @@ func TestSendAfterClose(t *testing.T) {
 	err := dt.Send(heimdall.AudioFrame{Data: []byte{0x01}})
 	if err == nil {
 		t.Fatal("expected error on Send after Close, got nil")
+	}
+}
+
+func TestErrorResponseHandling(t *testing.T) {
+	server := mockDeepgramServer(t, func(conn *websocket.Conn) {
+		// Wait for audio.
+		for {
+			msgType, _, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			if msgType == websocket.BinaryMessage {
+				break
+			}
+		}
+
+		// Send an error response (as Deepgram would for invalid parameters).
+		errorResp := `{"type":"Error","err_code":"BAD_REQUEST","err_msg":"diarize and multichannel are mutually exclusive","description":"Invalid parameters"}`
+		conn.WriteMessage(websocket.TextMessage, []byte(errorResp))
+
+		// Then send a valid result to prove the readLoop continues after errors.
+		resp := makeDeepgramResponse("after error", 0, 1.0, 1.0, 0, true)
+		conn.WriteMessage(websocket.TextMessage, resp)
+
+		echoServer(conn)
+	})
+	defer server.Close()
+
+	dt := testTranscriber(wsURL(server))
+
+	if err := dt.Connect(context.Background(), testOpts()); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
+	defer dt.Close()
+
+	dt.Send(heimdall.AudioFrame{Data: []byte{0x01}})
+
+	// Should receive the valid segment (error response is logged and skipped).
+	select {
+	case seg := <-dt.Receive():
+		if seg.Text != "after error" {
+			t.Errorf("segment.Text = %q; want %q", seg.Text, "after error")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for segment after error response")
 	}
 }

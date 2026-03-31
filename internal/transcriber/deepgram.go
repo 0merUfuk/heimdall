@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log"
 	"math"
 	"net/http"
 	"net/url"
@@ -63,7 +65,13 @@ const (
 
 // deepgramResponse represents a transcription result from Deepgram.
 type deepgramResponse struct {
-	Type    string `json:"type"`
+	Type string `json:"type"`
+
+	// Error fields — Deepgram sends these for invalid params, auth failures, etc.
+	ErrCode     string `json:"err_code"`
+	ErrMsg      string `json:"err_msg"`
+	Description string `json:"description"`
+
 	Channel struct {
 		Index        int `json:"index"`
 		Alternatives []struct {
@@ -179,7 +187,7 @@ func (d *DeepgramTranscriber) Connect(ctx context.Context, opts heimdall.Transcr
 
 	d.wg.Add(3)
 	go d.readLoop(conn, currentConnID)
-	go d.keepAliveLoop()
+	go d.keepAliveLoop(currentConnID)
 	go d.reconnectTimer()
 
 	return nil
@@ -286,9 +294,14 @@ func (d *DeepgramTranscriber) dial() (*websocket.Conn, error) {
 		HandshakeTimeout: 10 * time.Second,
 	}
 
-	conn, _, err := dialer.DialContext(d.ctx, u, header)
+	conn, httpResp, err := dialer.DialContext(d.ctx, u, header)
 	if err != nil {
-		return nil, err
+		if httpResp != nil {
+			body, _ := io.ReadAll(io.LimitReader(httpResp.Body, 1024))
+			httpResp.Body.Close()
+			return nil, fmt.Errorf("websocket dial: %w (HTTP %d: %s)", err, httpResp.StatusCode, string(body))
+		}
+		return nil, fmt.Errorf("websocket dial: %w", err)
 	}
 
 	return conn, nil
@@ -306,11 +319,10 @@ func (d *DeepgramTranscriber) buildURL() (string, error) {
 	if d.opts.Model != "" {
 		q.Set("model", d.opts.Model)
 	}
-	if d.opts.Language != "" {
+	if d.opts.Language == "multi" {
+		q.Set("detect_language", "true")
+	} else if d.opts.Language != "" {
 		q.Set("language", d.opts.Language)
-	}
-	if d.opts.Diarize {
-		q.Set("diarize", "true")
 	}
 	if d.opts.Punctuate {
 		q.Set("punctuate", "true")
@@ -328,8 +340,18 @@ func (d *DeepgramTranscriber) buildURL() (string, error) {
 		q.Set("encoding", d.opts.Encoding)
 	}
 
-	// AD-007: hardcode multichannel=true for stereo dual-channel audio.
-	q.Set("multichannel", "true")
+	// AD-007: multichannel for stereo dual-channel audio.
+	// Diarize and multichannel are mutually exclusive in Deepgram — when both
+	// are set, Deepgram returns error responses. With multichannel=true, the
+	// channel index already identifies who is speaking (L=system, R=mic).
+	if d.opts.Channels > 1 {
+		q.Set("multichannel", "true")
+	} else if d.opts.Diarize {
+		q.Set("diarize", "true")
+	}
+
+	// Opt out of Deepgram's Model Improvement Program to keep meeting data private.
+	q.Set("mip_opt_out", "true")
 
 	if len(d.opts.Keywords) > 0 {
 		q.Set("keywords", strings.Join(d.opts.Keywords, ","))
@@ -380,6 +402,16 @@ func (d *DeepgramTranscriber) readLoop(conn *websocket.Conn, connID uint64) {
 			continue
 		}
 
+		// Check for Deepgram error responses (invalid params, auth failures, etc.).
+		if resp.Type == "Error" || resp.Type == "error" {
+			errDetail := resp.ErrMsg
+			if errDetail == "" {
+				errDetail = resp.Description
+			}
+			log.Printf("deepgram error: [%s] %s", resp.ErrCode, errDetail)
+			continue
+		}
+
 		segment, ok := d.responseToSegment(resp)
 		if !ok {
 			continue
@@ -420,6 +452,12 @@ func (d *DeepgramTranscriber) responseToSegment(resp deepgramResponse) (heimdall
 	if len(alt.Words) > 0 {
 		speaker = alt.Words[0].Speaker
 	}
+	// In multichannel mode, channel index IS the speaker identity
+	// (L=0=system, R=1=mic per AD-007). This overrides per-word diarization
+	// because Deepgram's per-channel diarization is more reliable.
+	if d.opts.Channels > 1 && resp.Channel.Index >= 0 {
+		speaker = resp.Channel.Index
+	}
 
 	startDur := time.Duration(resp.Start*float64(time.Second)) + offset
 	endDur := time.Duration((resp.Start+resp.Duration)*float64(time.Second)) + offset
@@ -437,7 +475,10 @@ func (d *DeepgramTranscriber) responseToSegment(resp deepgramResponse) (heimdall
 
 // keepAliveLoop sends KeepAlive messages at the configured interval
 // to prevent the Deepgram idle timeout (NET-0001 error).
-func (d *DeepgramTranscriber) keepAliveLoop() {
+// Each loop is scoped to a specific connection identified by myConnID.
+// When the connection is replaced (by reconnection), this goroutine exits
+// so that stale keepAliveLoop goroutines do not accumulate.
+func (d *DeepgramTranscriber) keepAliveLoop(myConnID uint64) {
 	defer d.wg.Done()
 
 	ticker := time.NewTicker(d.keepAliveInterval)
@@ -449,6 +490,10 @@ func (d *DeepgramTranscriber) keepAliveLoop() {
 			return
 		case <-ticker.C:
 			d.mu.Lock()
+			if d.connID != myConnID {
+				d.mu.Unlock()
+				return // Connection was replaced, exit this keepAliveLoop.
+			}
 			conn := d.conn
 			closed := d.closed
 			d.mu.Unlock()
@@ -527,24 +572,26 @@ func (d *DeepgramTranscriber) proactiveReconnect() {
 	d.startTime = time.Now()
 	d.mu.Unlock()
 
-	// Start readLoop for the new connection.
-	d.wg.Add(1)
+	// Start readLoop and keepAliveLoop for the new connection.
+	d.wg.Add(2)
 	go d.readLoop(newConn, newConnID)
+	go d.keepAliveLoop(newConnID)
 
 	// Close old connection -- this will cause the old readLoop to exit.
 	// The old readLoop checks connID and will not trigger handleDisconnect
 	// since its connID no longer matches the current one.
 	if oldConn != nil {
-		msg := deepgramMessage{Type: "CloseStream"}
-		data, _ := json.Marshal(msg)
-		// Write to the OLD connection directly (not through writeMessage,
-		// which would serialize with writes to the NEW connection).
-		// This is safe because no other goroutine writes to oldConn at this point.
-		_ = oldConn.WriteMessage(websocket.TextMessage, data)
+		// Send CloseStream to old connection using writeMessage for proper
+		// write mutex serialization.
+		closeMsg := []byte(`{"type":"CloseStream"}`)
+		_ = d.writeMessage(oldConn, websocket.TextMessage, closeMsg)
 
-		// Close after a brief delay for final results.
+		// Close old connection after a brief grace period for CloseStream to flush.
+		// Track the goroutine in the WaitGroup so Close() waits for it.
+		d.wg.Add(1)
 		go func() {
-			time.Sleep(2 * time.Second)
+			defer d.wg.Done()
+			time.Sleep(500 * time.Millisecond)
 			oldConn.Close()
 		}()
 	}
@@ -625,9 +672,10 @@ func (d *DeepgramTranscriber) handleDisconnect(failedConn *websocket.Conn, origi
 		d.startTime = time.Now()
 		d.mu.Unlock()
 
-		// Restart the readLoop for the new connection.
-		d.wg.Add(1)
+		// Restart the readLoop and keepAliveLoop for the new connection.
+		d.wg.Add(2)
 		go d.readLoop(newConn, newConnID)
+		go d.keepAliveLoop(newConnID)
 		return
 	}
 

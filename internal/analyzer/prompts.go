@@ -113,6 +113,12 @@ func buildUserPrompt(segments []heimdall.Segment, opts heimdall.AnalyzeOpts) str
 		}
 	}
 
+	// If a non-English language is specified, instruct Claude to produce output
+	// in that language. JSON keys remain in English for parsing.
+	if opts.Language != "" && opts.Language != "en" && opts.Language != "multi" {
+		b.WriteString(fmt.Sprintf("The transcript is in %s. Produce all summary text, action items, decisions, topics, and follow-ups in %s. Keep JSON keys in English.\n\n", opts.Language, opts.Language))
+	}
+
 	// Format transcript with clear delimiters (V-014).
 	b.WriteString("<transcript>\n")
 	for _, seg := range segments {

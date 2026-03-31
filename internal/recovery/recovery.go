@@ -37,6 +37,9 @@ type RecoveryMetadata struct {
 type RecoveryFile struct {
 	Metadata RecoveryMetadata   `json:"metadata"`
 	Segments []heimdall.Segment `json:"segments"`
+	// Path is the filesystem path of the recovery file. Not serialized to JSON.
+	// Populated by ListRecoveryFiles and LoadRecoveryFile.
+	Path string `json:"-"`
 }
 
 // RecoveryWriter periodically persists transcript segments to disk for
@@ -48,6 +51,8 @@ type RecoveryWriter struct {
 	segments []heimdall.Segment
 	metadata RecoveryMetadata
 	interval time.Duration
+	stopped  bool // set by Stop; prevents race with concurrent Cleanup
+	cleaned  bool // set by Cleanup; prevents Stop from re-creating the file
 }
 
 // RecoveryDir returns the path to the recovery directory (~/.heimdall/recovery/).
@@ -61,13 +66,15 @@ func RecoveryDir() string {
 
 // NewRecoveryWriter creates a new recovery writer that persists segments to
 // the recovery directory. It creates the directory if it does not exist.
-func NewRecoveryWriter(title string, startTime time.Time) (*RecoveryWriter, error) {
-	return NewRecoveryWriterWithInterval(title, startTime, DefaultWriteInterval)
+// The language parameter is stored in metadata so the recovery/analyze path
+// can pass it through to Claude (Bug #23 fix).
+func NewRecoveryWriter(title string, startTime time.Time, language string) (*RecoveryWriter, error) {
+	return NewRecoveryWriterWithInterval(title, startTime, language, DefaultWriteInterval)
 }
 
 // NewRecoveryWriterWithInterval creates a recovery writer with a custom write interval.
 // This is primarily used in tests to avoid 30-second waits.
-func NewRecoveryWriterWithInterval(title string, startTime time.Time, interval time.Duration) (*RecoveryWriter, error) {
+func NewRecoveryWriterWithInterval(title string, startTime time.Time, language string, interval time.Duration) (*RecoveryWriter, error) {
 	dir := RecoveryDir()
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, fmt.Errorf("creating recovery directory: %w", err)
@@ -84,6 +91,7 @@ func NewRecoveryWriterWithInterval(title string, startTime time.Time, interval t
 		metadata: RecoveryMetadata{
 			Title:     title,
 			StartTime: startTime,
+			Language:  language,
 			Platform:  runtime.GOOS,
 		},
 		interval: interval,
@@ -124,7 +132,16 @@ func (r *RecoveryWriter) writeLoop(ctx context.Context) {
 
 // Stop is a convenience method that performs a final Flush.
 // The write loop goroutine exits via context cancellation, not Stop.
+// If Cleanup was already called, Stop is a no-op to avoid re-creating
+// the recovery file that was just deleted.
 func (r *RecoveryWriter) Stop() error {
+	r.mu.Lock()
+	if r.cleaned || r.stopped {
+		r.mu.Unlock()
+		return nil
+	}
+	r.stopped = true
+	r.mu.Unlock()
 	return r.Flush()
 }
 
@@ -180,8 +197,13 @@ func (r *RecoveryWriter) Flush() error {
 }
 
 // Cleanup deletes the recovery file. Called on clean shutdown after a
-// successful Obsidian write.
+// successful Obsidian write. Sets the cleaned flag so that a subsequent
+// Stop() does not re-create the file via Flush().
 func (r *RecoveryWriter) Cleanup() error {
+	r.mu.Lock()
+	r.cleaned = true
+	r.mu.Unlock()
+
 	finalPath := filepath.Join(r.dir, r.filename)
 	err := os.Remove(finalPath)
 	if err != nil && !os.IsNotExist(err) {
@@ -221,6 +243,7 @@ func ListRecoveryFiles() ([]RecoveryFile, error) {
 			fmt.Fprintf(os.Stderr, "recovery: skipping corrupt file %s: %v\n", entry.Name(), err)
 			continue
 		}
+		rf.Path = path
 		files = append(files, *rf)
 	}
 
@@ -238,6 +261,7 @@ func LoadRecoveryFile(path string) (*RecoveryFile, error) {
 	if err := json.Unmarshal(data, &rf); err != nil {
 		return nil, fmt.Errorf("parsing recovery file: %w", err)
 	}
+	rf.Path = path
 
 	return &rf, nil
 }
