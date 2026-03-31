@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -11,6 +12,85 @@ import (
 
 	"github.com/0merUfuk/heimdall/internal/config"
 )
+
+// supportedLanguages lists language codes supported by Deepgram Nova-3.
+// "multi" is a special value mapped to detect_language=true.
+var supportedLanguages = map[string]string{
+	"en":    "English",
+	"tr":    "Turkish",
+	"es":    "Spanish",
+	"fr":    "French",
+	"de":    "German",
+	"it":    "Italian",
+	"pt":    "Portuguese",
+	"nl":    "Dutch",
+	"ja":    "Japanese",
+	"ko":    "Korean",
+	"zh":    "Chinese",
+	"ru":    "Russian",
+	"hi":    "Hindi",
+	"pl":    "Polish",
+	"sv":    "Swedish",
+	"da":    "Danish",
+	"no":    "Norwegian",
+	"fi":    "Finnish",
+	"uk":    "Ukrainian",
+	"id":    "Indonesian",
+	"multi": "Auto-detect",
+}
+
+// knownClaudeModels lists Claude model identifiers known at build time.
+var knownClaudeModels = map[string]bool{
+	"claude-haiku-4-5":  true,
+	"claude-sonnet-4-5": true,
+	"claude-sonnet-4-6": true,
+	"claude-opus-4-5":   true,
+	"claude-opus-4-6":   true,
+}
+
+// validateLanguage checks if a language code is supported. Returns a warning
+// message if unknown, empty string if valid.
+func validateLanguage(lang string) string {
+	if _, ok := supportedLanguages[lang]; ok {
+		return ""
+	}
+	supported := make([]string, 0, len(supportedLanguages))
+	for code, name := range supportedLanguages {
+		supported = append(supported, fmt.Sprintf("%s (%s)", code, name))
+	}
+	return fmt.Sprintf("Warning: %q is not a known Deepgram language. Supported: %s",
+		lang, strings.Join(supported, ", "))
+}
+
+// validateVaultPath checks if a vault path exists. Returns a warning if not.
+func validateVaultPath(path string) string {
+	expanded := config.ExpandHome(path)
+	info, err := os.Stat(expanded)
+	if err != nil {
+		return fmt.Sprintf("Warning: vault path %q does not exist. Create it before recording.", expanded)
+	}
+	if !info.IsDir() {
+		return fmt.Sprintf("Warning: vault path %q is not a directory.", expanded)
+	}
+	return ""
+}
+
+// validateClaudeModel checks if a model is known. Returns a warning if not.
+func validateClaudeModel(model string) string {
+	if knownClaudeModels[model] {
+		return ""
+	}
+	return fmt.Sprintf("Warning: %q is not a recognized Claude model. Known models: %s",
+		model, strings.Join(knownClaudeModelList(), ", "))
+}
+
+func knownClaudeModelList() []string {
+	models := make([]string, 0, len(knownClaudeModels))
+	for m := range knownClaudeModels {
+		models = append(models, m)
+	}
+	return models
+}
 
 var configCmd = &cobra.Command{
 	Use:   "config",
@@ -86,12 +166,18 @@ func runConfigInit(cmd *cobra.Command, args []string) error {
 	fmt.Println("heimdall config init -- setting up configuration")
 	fmt.Println()
 
-	// Vault path.
+	// Vault path — validate existence.
 	fmt.Print("Obsidian vault path (e.g., ~/Documents/Obsidian/MyVault): ")
 	vaultPath, _ := reader.ReadString('\n')
 	vaultPath = strings.TrimSpace(vaultPath)
 	if vaultPath != "" {
 		cfg.Obsidian.VaultPath = vaultPath
+		if warn := validateVaultPath(vaultPath); warn != "" {
+			fmt.Printf("  %s\n", warn)
+		} else {
+			absPath, _ := filepath.Abs(config.ExpandHome(vaultPath))
+			fmt.Printf("  Vault found: %s\n", absPath)
+		}
 	}
 
 	// Meetings folder within vault.
@@ -102,20 +188,35 @@ func runConfigInit(cmd *cobra.Command, args []string) error {
 		cfg.Obsidian.MeetingsFolder = meetingsFolder
 	}
 
-	// Claude model.
+	// Claude model — validate against known models.
 	fmt.Printf("Claude model [%s]: ", cfg.Claude.Model)
 	claudeModel, _ := reader.ReadString('\n')
 	claudeModel = strings.TrimSpace(claudeModel)
 	if claudeModel != "" {
 		cfg.Claude.Model = claudeModel
+		if warn := validateClaudeModel(claudeModel); warn != "" {
+			fmt.Printf("  %s\n", warn)
+		}
 	}
 
-	// Deepgram language.
+	// Deepgram language — validate against supported languages.
 	fmt.Printf("Transcription language [%s]: ", cfg.Deepgram.Language)
 	language, _ := reader.ReadString('\n')
 	language = strings.TrimSpace(language)
 	if language != "" {
-		cfg.Deepgram.Language = language
+		if warn := validateLanguage(language); warn != "" {
+			fmt.Printf("  %s\n", warn)
+			fmt.Print("  Use this language anyway? [y/N]: ")
+			answer, _ := reader.ReadString('\n')
+			answer = strings.TrimSpace(strings.ToLower(answer))
+			if answer != "y" && answer != "yes" {
+				fmt.Printf("  Keeping default: %s\n", cfg.Deepgram.Language)
+			} else {
+				cfg.Deepgram.Language = language
+			}
+		} else {
+			cfg.Deepgram.Language = language
+		}
 	}
 
 	// Save the config.
@@ -162,12 +263,25 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 	key := args[0]
 	value := args[1]
 
-	// Warn if storing a plaintext API key instead of an env var reference.
-	if key == "deepgram.api_key" || key == "claude.api_key" {
+	// Validate specific fields before saving.
+	switch key {
+	case "deepgram.api_key", "claude.api_key":
 		if !strings.HasPrefix(value, "${") {
 			fmt.Println("Warning: API keys should be stored as environment variable references.")
 			fmt.Printf("  Recommended: heimdall config set %s '${ENV_VAR_NAME}'\n", key)
 			fmt.Println("  The value you provided will be stored as-is in the config file.")
+		}
+	case "deepgram.language":
+		if warn := validateLanguage(value); warn != "" {
+			fmt.Printf("  %s\n", warn)
+		}
+	case "claude.model":
+		if warn := validateClaudeModel(value); warn != "" {
+			fmt.Printf("  %s\n", warn)
+		}
+	case "obsidian.vault_path":
+		if warn := validateVaultPath(value); warn != "" {
+			fmt.Printf("  %s\n", warn)
 		}
 	}
 
