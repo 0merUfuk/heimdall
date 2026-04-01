@@ -106,6 +106,11 @@ type MeetingNote struct {
 
 	// Platform is the meeting platform (e.g., "Zoom", "Google Meet").
 	Platform string
+
+	// IsFallback indicates the note was generated from the fallback path
+	// (e.g., Claude analysis failed after retries). When true, the Summary
+	// contains a raw transcript dump rather than an AI-generated analysis.
+	IsFallback bool
 }
 
 // Decision represents a key decision made during the meeting.

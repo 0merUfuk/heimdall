@@ -232,7 +232,7 @@ func runRecord(cmd *cobra.Command, args []string) error {
 		}
 
 		// Detect fallback note from exhausted retries (V-009).
-		if note != nil && strings.Contains(note.Summary, "Analysis failed") {
+		if note != nil && note.IsFallback {
 			fmt.Println("Warning: Claude analysis failed after retries. Raw transcript will be saved.")
 		}
 
@@ -275,6 +275,7 @@ func runRecord(cmd *cobra.Command, args []string) error {
 							fmt.Printf("  - %s (owner: %s)\n", ai.Task, ai.Owner)
 						}
 					}
+					fmt.Println("\nTo retry writing, use: heimdall recover")
 				}
 			} else {
 				fmt.Println("Obsidian vault not configured -- summary displayed above only")
