@@ -561,6 +561,7 @@ func (d *DeepgramTranscriber) proactiveReconnect() {
 	if err != nil {
 		// Failed to establish new connection -- keep using the old one.
 		// It will eventually be force-closed by Deepgram at 60 min.
+		log.Printf("warning: proactive reconnect at 55min failed: %v (will retry on disconnect)", err)
 		return
 	}
 

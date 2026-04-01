@@ -239,8 +239,9 @@ func ListRecoveryFiles() ([]RecoveryFile, error) {
 		path := filepath.Join(dir, entry.Name())
 		rf, err := LoadRecoveryFile(path)
 		if err != nil {
-			// Skip corrupt files -- log and continue.
+			// Skip corrupt files -- log with cleanup guidance.
 			fmt.Fprintf(os.Stderr, "recovery: skipping corrupt file %s: %v\n", entry.Name(), err)
+			fmt.Fprintf(os.Stderr, "  To remove: rm %s\n", filepath.Join(RecoveryDir(), entry.Name()))
 			continue
 		}
 		rf.Path = path

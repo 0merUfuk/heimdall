@@ -120,6 +120,11 @@ func (s *MeetingSession) Start(ctx context.Context) error {
 				case err := <-errCh:
 					log.Printf("WARNING: system audio failed: %v", err)
 					log.Printf("Recording continues with microphone only.")
+					// Mark system audio as unavailable so callers of
+					// SystemAvailable() get an accurate status (Gap E).
+					s.mu.Lock()
+					s.systemAvailable = false
+					s.mu.Unlock()
 				case <-s.ctx.Done():
 				}
 			}()
@@ -258,7 +263,11 @@ func (s *MeetingSession) Title() string {
 }
 
 // SystemAvailable returns whether system audio capture is active.
+// It is safe to call concurrently -- the error monitoring goroutine
+// may set systemAvailable to false at any time (e.g., permission denied).
 func (s *MeetingSession) SystemAvailable() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.systemAvailable
 }
 
