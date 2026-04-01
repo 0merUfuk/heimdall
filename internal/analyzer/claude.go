@@ -364,6 +364,7 @@ func (c *ClaudeAnalyzer) buildFallbackNote(segments []heimdall.Segment, lastErr 
 		Topics:      []heimdall.Topic{},
 		Followups:   []heimdall.Followup{},
 		MeetingType: "general",
+		IsFallback:  true,
 	}
 }
 

@@ -118,9 +118,9 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	fmt.Printf("\n%d/%d checks passed.", passed, total)
 	if passed == total {
 		fmt.Println(" Ready to record.")
-	} else {
-		fmt.Println(" Fix the issues above before recording.")
+		return nil
 	}
 
-	return nil
+	fmt.Println(" Fix the issues above before recording.")
+	return fmt.Errorf("%d/%d checks failed", total-passed, total)
 }

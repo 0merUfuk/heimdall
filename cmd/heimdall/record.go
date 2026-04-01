@@ -65,10 +65,36 @@ func runRecord(cmd *cobra.Command, args []string) error {
 
 	// Print header.
 	fmt.Printf("heimdall %s -- recording \"%s\"\n", version, recordTitle)
+	fmt.Println("Warning: Recording active -- ensure all participants have consented to recording.")
 
 	// Create a context that listens for interrupt signals.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// Pre-validate config and Obsidian vault before starting the recording.
+	// Better to fail now than after a 1-hour meeting.
+	cfg, err := config.Load(config.ConfigPath())
+	if err != nil {
+		log.Printf("warning: config file is malformed: %v", err)
+		fmt.Printf("Fix by editing %s or resetting with: heimdall config init\n", config.ConfigPath())
+	}
+	if cfg != nil {
+		if err := cfg.ResolveEnvVars(); err != nil {
+			log.Printf("warning: resolving config env vars: %v", err)
+		}
+		if cfg.Obsidian.VaultPath != "" {
+			expandedPath := config.ExpandHome(cfg.Obsidian.VaultPath)
+			if _, err := os.Stat(expandedPath); err != nil {
+				fmt.Printf("Warning: Obsidian vault path not found: %s\n", expandedPath)
+				fmt.Println("Meeting notes will not be saved. Fix with:")
+				fmt.Printf("  heimdall config set obsidian.vault_path /path/to/vault\n\n")
+			}
+		} else {
+			fmt.Println("Note: Obsidian vault not configured. Meeting notes will not be saved.")
+			fmt.Println("Set it with: heimdall config set obsidian.vault_path /path/to/vault")
+			fmt.Println()
+		}
+	}
 
 	// Stage 1: Create audio sources.
 	var systemSource audio.AudioSource
@@ -104,12 +130,21 @@ func runRecord(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to start recording: %w", err)
 	}
 
+	// Brief pause to allow system audio permission check to fire.
+	// Without this, the status line may show "system on" before
+	// the Screen Recording denial is detected by the watchdog.
+	time.Sleep(500 * time.Millisecond)
+
 	// Print status line.
 	sysStatus := "off"
 	if sess.SystemAvailable() {
 		sysStatus = "on"
 	}
-	fmt.Printf("Audio: system %s  mic on  | STT: deepgram (connected) | recording...\n\n", sysStatus)
+	fmt.Printf("Audio: system %s  mic on  | STT: deepgram (connected) | recording...\n", sysStatus)
+	if sysStatus == "off" {
+		fmt.Println("  (system audio unavailable -- recording mic only)")
+	}
+	fmt.Println()
 
 	// Wait for interrupt signal.
 	<-ctx.Done()
@@ -143,19 +178,18 @@ func runRecord(cmd *cobra.Command, args []string) error {
 
 	// Stage 5: Analyze via Claude (if API key available).
 	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
+	if anthropicKey == "" && len(sess.Segments()) > 0 {
+		fmt.Println()
+		fmt.Println("Note: ANTHROPIC_API_KEY not set -- Claude analysis skipped.")
+		fmt.Println("The raw transcript was displayed above but no meeting note was saved.")
+		fmt.Println("To enable analysis: export ANTHROPIC_API_KEY=your_key")
+		fmt.Println("To analyze this session later: heimdall recover")
+	}
 	if anthropicKey != "" && len(sess.Segments()) > 0 {
 		fmt.Println("Generating meeting summary via Claude...")
 
-		// Load config for Claude model and Obsidian vault settings.
-		cfg, err := config.Load(config.ConfigPath())
-		if err != nil {
-			log.Printf("warning: failed to load config: %v", err)
-		}
-		if cfg != nil {
-			if err := cfg.ResolveEnvVars(); err != nil {
-				log.Printf("warning: resolving config env vars: %v", err)
-			}
-		}
+		// Config was pre-loaded and validated before recording started.
+		// Reuse the same cfg variable to avoid loading config twice.
 
 		// Determine the Claude model: config value, then fallback to default.
 		model := analyzer.DefaultModel
@@ -197,6 +231,11 @@ func runRecord(cmd *cobra.Command, args []string) error {
 			log.Printf("warning: Claude analysis failed: %v", err)
 		}
 
+		// Detect fallback note from exhausted retries (V-009).
+		if note != nil && note.IsFallback {
+			fmt.Println("Warning: Claude analysis failed after retries. Raw transcript will be saved.")
+		}
+
 		if note != nil {
 			note.Title = recordTitle
 			note.Date = time.Now()
@@ -210,6 +249,15 @@ func runRecord(cmd *cobra.Command, args []string) error {
 					path, err := writer.Write(note)
 					if err != nil {
 						log.Printf("warning: failed to write meeting note: %v", err)
+						// Fallback: print summary to stdout so analysis is not lost.
+						fmt.Printf("\n--- Meeting Summary ---\n%s\n", note.Summary)
+						if len(note.ActionItems) > 0 {
+							fmt.Println("\nAction Items:")
+							for _, ai := range note.ActionItems {
+								fmt.Printf("  - %s (owner: %s)\n", ai.Task, ai.Owner)
+							}
+						}
+						fmt.Println("\nTo retry writing, use: heimdall recover")
 					} else {
 						fmt.Printf("Meeting note saved: %s\n", path)
 						// V-006: clean up recovery file after successful write.
@@ -227,6 +275,7 @@ func runRecord(cmd *cobra.Command, args []string) error {
 							fmt.Printf("  - %s (owner: %s)\n", ai.Task, ai.Owner)
 						}
 					}
+					fmt.Println("\nTo retry writing, use: heimdall recover")
 				}
 			} else {
 				fmt.Println("Obsidian vault not configured -- summary displayed above only")
