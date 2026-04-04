@@ -27,6 +27,7 @@ var (
 	recordLanguage     string
 	recordParticipants string
 	recordKeywords     string
+	recordProfile      string
 )
 
 var recordCmd = &cobra.Command{
@@ -39,18 +40,19 @@ and displays the live transcript in the terminal.
 Press Ctrl+C to stop recording.
 
 Requires DEEPGRAM_API_KEY environment variable.`,
-	Example: `  heimdall record --title "Sprint Planning"
-  heimdall record --title "Standup" --language tr
-  heimdall record --title "Mixed Meeting" --language multi`,
+	Example: `  heimdall record                                 # auto-title, config defaults
+  heimdall record --profile daily                  # use "daily" profile
+  heimdall record --title "Sprint Planning"        # custom title
+  heimdall record --profile 1on1 --title "Special" # profile + override`,
 	RunE: runRecord,
 }
 
 func init() {
-	recordCmd.Flags().StringVar(&recordTitle, "title", "", "meeting title (required)")
+	recordCmd.Flags().StringVar(&recordTitle, "title", "", "meeting title (auto-generated if omitted)")
 	recordCmd.Flags().StringVar(&recordLanguage, "language", "en", "transcription language code (e.g., en, tr, multi)")
 	recordCmd.Flags().StringVar(&recordParticipants, "participants", "", "comma-separated list of participant names (hints for speaker identification)")
 	recordCmd.Flags().StringVar(&recordKeywords, "keywords", "", "comma-separated list of context keywords for analysis")
-	_ = recordCmd.MarkFlagRequired("title")
+	recordCmd.Flags().StringVar(&recordProfile, "profile", "", "meeting profile name (from config)")
 	rootCmd.AddCommand(recordCmd)
 }
 
@@ -62,10 +64,6 @@ func runRecord(cmd *cobra.Command, args []string) error {
 			"Set it with:\n  export DEEPGRAM_API_KEY=your_key_here\n\n" +
 			"Get a free API key at: https://console.deepgram.com/")
 	}
-
-	// Print header.
-	fmt.Printf("heimdall %s -- recording \"%s\"\n", version, recordTitle)
-	fmt.Println("Warning: Recording active -- ensure all participants have consented to recording.")
 
 	// Create a context that listens for interrupt signals.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -95,6 +93,72 @@ func runRecord(cmd *cobra.Command, args []string) error {
 			fmt.Println()
 		}
 	}
+
+	// Apply profile settings if specified.
+	var participants []string
+	var keywords []string
+
+	if recordProfile != "" && cfg != nil && cfg.Profiles != nil {
+		if profile, ok := cfg.Profiles[recordProfile]; ok {
+			if recordTitle == "" && profile.Title != "" {
+				recordTitle = profile.Title
+			}
+			if !cmd.Flags().Changed("language") && profile.Language != "" {
+				recordLanguage = profile.Language
+			}
+			if recordParticipants == "" && len(profile.Participants) > 0 {
+				participants = profile.Participants
+			}
+			if recordKeywords == "" && len(profile.Keywords) > 0 {
+				keywords = profile.Keywords
+			}
+		} else {
+			names := make([]string, 0)
+			for k := range cfg.Profiles {
+				names = append(names, k)
+			}
+			fmt.Printf("Warning: profile %q not found. Available: %s\n", recordProfile, strings.Join(names, ", "))
+		}
+	}
+
+	// Config language as default when flag not changed.
+	if !cmd.Flags().Changed("language") && cfg != nil && cfg.Deepgram.Language != "" && recordLanguage == "en" {
+		recordLanguage = cfg.Deepgram.Language
+	}
+
+	// Auto-generate title if still empty.
+	if recordTitle == "" {
+		recordTitle = time.Now().Format("Meeting 2006-01-02 15:04")
+	}
+
+	// Parse CLI participants if flag was provided (overrides profile).
+	if recordParticipants != "" {
+		participants = nil
+		for _, p := range strings.Split(recordParticipants, ",") {
+			if trimmed := strings.TrimSpace(p); trimmed != "" {
+				participants = append(participants, trimmed)
+			}
+		}
+	}
+
+	// Parse CLI keywords if flag was provided (overrides profile).
+	if recordKeywords != "" {
+		keywords = nil
+		for _, k := range strings.Split(recordKeywords, ",") {
+			if trimmed := strings.TrimSpace(k); trimmed != "" {
+				keywords = append(keywords, trimmed)
+			}
+		}
+	}
+
+	// Fall back to global config keywords if no keywords from profile or CLI.
+	if len(keywords) == 0 && cfg != nil && len(cfg.Keywords) > 0 {
+		keywords = cfg.Keywords
+	}
+
+	// Print header.
+	fmt.Printf("heimdall %s -- recording \"%s\"\n", version, recordTitle)
+	fmt.Println("Warning: Recording active -- ensure all participants have consented to recording.")
 
 	// Stage 1: Create audio sources.
 	var systemSource audio.AudioSource
@@ -195,24 +259,6 @@ func runRecord(cmd *cobra.Command, args []string) error {
 		model := analyzer.DefaultModel
 		if cfg != nil && cfg.Claude.Model != "" && !strings.HasPrefix(cfg.Claude.Model, "${") {
 			model = cfg.Claude.Model
-		}
-
-		// Parse comma-separated participants and keywords.
-		var participants []string
-		if recordParticipants != "" {
-			for _, p := range strings.Split(recordParticipants, ",") {
-				if trimmed := strings.TrimSpace(p); trimmed != "" {
-					participants = append(participants, trimmed)
-				}
-			}
-		}
-		var keywords []string
-		if recordKeywords != "" {
-			for _, k := range strings.Split(recordKeywords, ",") {
-				if trimmed := strings.TrimSpace(k); trimmed != "" {
-					keywords = append(keywords, trimmed)
-				}
-			}
 		}
 
 		claude := analyzer.NewClaudeAnalyzer(anthropicKey)

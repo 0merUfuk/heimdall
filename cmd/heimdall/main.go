@@ -19,10 +19,13 @@ var rootCmd = &cobra.Command{
 	Long: `heimdall captures meeting audio, transcribes with speaker diarization,
 analyzes via Claude, and writes structured notes to your Obsidian vault.
 
-Usage:
-  heimdall record --title "Sprint Planning"    Start recording a meeting
+Quick start:
+  heimdall config init                         First-run setup wizard
+  heimdall record                              Record with auto-title
+  heimdall record --profile daily              Use a saved profile
+  heimdall record --title "Sprint Planning"    Record with custom title
   heimdall doctor                              Check prerequisites
-  heimdall version                             Print version info`,
+  heimdall config show                         View current settings`,
 }
 
 func main() {

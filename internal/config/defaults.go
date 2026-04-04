@@ -6,6 +6,7 @@ package config
 // DefaultConfig returns a Config populated with sensible defaults.
 // API keys are stored as environment variable references that must be
 // resolved via ResolveEnvVars before use.
+// Profiles is nil by default — profiles are user-defined via config init or config add-profile.
 func DefaultConfig() *Config {
 	return &Config{
 		Deepgram: DeepgramConfig{
