@@ -12,12 +12,13 @@ import (
 
 // Config holds all heimdall configuration. Loaded from ~/.heimdall/config.yaml.
 type Config struct {
-	Deepgram DeepgramConfig `yaml:"deepgram"`
-	Claude   ClaudeConfig   `yaml:"claude"`
-	Obsidian ObsidianConfig `yaml:"obsidian"`
-	Audio    AudioConfig    `yaml:"audio"`
-	Output   OutputConfig   `yaml:"output"`
-	Keywords []string       `yaml:"keywords,omitempty"`
+	Deepgram     DeepgramConfig `yaml:"deepgram"`
+	Claude       ClaudeConfig   `yaml:"claude"`
+	Obsidian     ObsidianConfig `yaml:"obsidian"`
+	Audio        AudioConfig    `yaml:"audio"`
+	Output       OutputConfig   `yaml:"output"`
+	Keywords     []string       `yaml:"keywords,omitempty"`
+	Participants []string       `yaml:"participants,omitempty"`
 }
 
 // DeepgramConfig holds Deepgram API configuration.

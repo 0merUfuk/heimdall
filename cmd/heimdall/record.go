@@ -36,21 +36,26 @@ var recordCmd = &cobra.Command{
 streams to Deepgram for real-time transcription with speaker diarization,
 and displays the live transcript in the terminal.
 
+When run with no flags, uses defaults from ~/.heimdall/config.yaml:
+  - Title is auto-generated as "Meeting YYYY-MM-DD HH:MM"
+  - Language, participants, and keywords come from config
+  - CLI flags override config values when provided
+
 Press Ctrl+C to stop recording.
 
 Requires DEEPGRAM_API_KEY environment variable.`,
-	Example: `  heimdall record --title "Sprint Planning"
-  heimdall record --title "Standup" --language tr
-  heimdall record --title "Mixed Meeting" --language multi`,
+	Example: `  heimdall record                                    # uses config defaults
+  heimdall record --title "Sprint Planning"          # custom title
+  heimdall record --title "1:1" --participants "Sarah" # override participants
+  heimdall record --language multi                    # auto-detect language`,
 	RunE: runRecord,
 }
 
 func init() {
-	recordCmd.Flags().StringVar(&recordTitle, "title", "", "meeting title (required)")
+	recordCmd.Flags().StringVar(&recordTitle, "title", "", "meeting title (auto-generated if omitted)")
 	recordCmd.Flags().StringVar(&recordLanguage, "language", "en", "transcription language code (e.g., en, tr, multi)")
 	recordCmd.Flags().StringVar(&recordParticipants, "participants", "", "comma-separated list of participant names (hints for speaker identification)")
 	recordCmd.Flags().StringVar(&recordKeywords, "keywords", "", "comma-separated list of context keywords for analysis")
-	_ = recordCmd.MarkFlagRequired("title")
 	rootCmd.AddCommand(recordCmd)
 }
 
@@ -63,14 +68,6 @@ func runRecord(cmd *cobra.Command, args []string) error {
 			"Get a free API key at: https://console.deepgram.com/")
 	}
 
-	// Print header.
-	fmt.Printf("heimdall %s -- recording \"%s\"\n", version, recordTitle)
-	fmt.Println("Warning: Recording active -- ensure all participants have consented to recording.")
-
-	// Create a context that listens for interrupt signals.
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
 	// Pre-validate config and Obsidian vault before starting the recording.
 	// Better to fail now than after a 1-hour meeting.
 	cfg, err := config.Load(config.ConfigPath())
@@ -82,6 +79,52 @@ func runRecord(cmd *cobra.Command, args []string) error {
 		if err := cfg.ResolveEnvVars(); err != nil {
 			log.Printf("warning: resolving config env vars: %v", err)
 		}
+	}
+
+	// Auto-generate title if not provided via CLI flag.
+	if recordTitle == "" {
+		recordTitle = time.Now().Format("Meeting 2006-01-02 15:04")
+	}
+
+	// Use config language as default when --language was not explicitly changed.
+	if recordLanguage == "en" && cfg != nil && cfg.Deepgram.Language != "" {
+		recordLanguage = cfg.Deepgram.Language
+	}
+
+	// Merge participants: CLI flag overrides config, but if flag is empty use config.
+	var participants []string
+	if recordParticipants != "" {
+		for _, p := range strings.Split(recordParticipants, ",") {
+			if trimmed := strings.TrimSpace(p); trimmed != "" {
+				participants = append(participants, trimmed)
+			}
+		}
+	} else if cfg != nil && len(cfg.Participants) > 0 {
+		participants = cfg.Participants
+	}
+
+	// Merge keywords: CLI flag overrides config, but if flag is empty use config.
+	var keywords []string
+	if recordKeywords != "" {
+		for _, k := range strings.Split(recordKeywords, ",") {
+			if trimmed := strings.TrimSpace(k); trimmed != "" {
+				keywords = append(keywords, trimmed)
+			}
+		}
+	} else if cfg != nil && len(cfg.Keywords) > 0 {
+		keywords = cfg.Keywords
+	}
+
+	// Print header.
+	fmt.Printf("heimdall %s -- recording \"%s\"\n", version, recordTitle)
+	fmt.Println("Warning: Recording active -- ensure all participants have consented to recording.")
+
+	// Create a context that listens for interrupt signals.
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	// Validate Obsidian vault path.
+	if cfg != nil {
 		if cfg.Obsidian.VaultPath != "" {
 			expandedPath := config.ExpandHome(cfg.Obsidian.VaultPath)
 			if _, err := os.Stat(expandedPath); err != nil {
@@ -197,23 +240,7 @@ func runRecord(cmd *cobra.Command, args []string) error {
 			model = cfg.Claude.Model
 		}
 
-		// Parse comma-separated participants and keywords.
-		var participants []string
-		if recordParticipants != "" {
-			for _, p := range strings.Split(recordParticipants, ",") {
-				if trimmed := strings.TrimSpace(p); trimmed != "" {
-					participants = append(participants, trimmed)
-				}
-			}
-		}
-		var keywords []string
-		if recordKeywords != "" {
-			for _, k := range strings.Split(recordKeywords, ",") {
-				if trimmed := strings.TrimSpace(k); trimmed != "" {
-					keywords = append(keywords, trimmed)
-				}
-			}
-		}
+		// participants and keywords were already merged from config/CLI flags above.
 
 		claude := analyzer.NewClaudeAnalyzer(anthropicKey)
 		analyzeOpts := heimdall.AnalyzeOpts{

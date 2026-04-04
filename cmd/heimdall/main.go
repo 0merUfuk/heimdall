@@ -20,7 +20,8 @@ var rootCmd = &cobra.Command{
 analyzes via Claude, and writes structured notes to your Obsidian vault.
 
 Usage:
-  heimdall record --title "Sprint Planning"    Start recording a meeting
+  heimdall record                              Start recording (uses config defaults)
+  heimdall record --title "Sprint Planning"    Start recording with custom title
   heimdall doctor                              Check prerequisites
   heimdall version                             Print version info`,
 }

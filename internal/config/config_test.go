@@ -53,6 +53,12 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Output.Language != "en" {
 		t.Errorf("Output.Language: got %q, want en", cfg.Output.Language)
 	}
+	if len(cfg.Participants) != 0 {
+		t.Errorf("Participants: expected empty, got %v", cfg.Participants)
+	}
+	if len(cfg.Keywords) != 0 {
+		t.Errorf("Keywords: expected empty, got %v", cfg.Keywords)
+	}
 }
 
 // TestLoad_FromYAMLFile verifies that Load reads and parses a YAML config file.
@@ -83,6 +89,9 @@ output:
 keywords:
   - Kubernetes
   - gRPC
+participants:
+  - Omer
+  - Cenker
 `
 
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
@@ -126,6 +135,15 @@ keywords:
 	}
 	if cfg.Keywords[0] != "Kubernetes" {
 		t.Errorf("Keywords[0]: got %q, want Kubernetes", cfg.Keywords[0])
+	}
+	if len(cfg.Participants) != 2 {
+		t.Fatalf("Participants length: got %d, want 2", len(cfg.Participants))
+	}
+	if cfg.Participants[0] != "Omer" {
+		t.Errorf("Participants[0]: got %q, want Omer", cfg.Participants[0])
+	}
+	if cfg.Participants[1] != "Cenker" {
+		t.Errorf("Participants[1]: got %q, want Cenker", cfg.Participants[1])
 	}
 }
 
@@ -176,6 +194,7 @@ func TestSave_AndLoad_Roundtrip(t *testing.T) {
 	original.Deepgram.Model = "nova-2"
 	original.Obsidian.VaultPath = "/home/user/vault"
 	original.Keywords = []string{"Go", "WebSocket"}
+	original.Participants = []string{"Alice", "Bob"}
 
 	if err := original.Save(path); err != nil {
 		t.Fatalf("Save: unexpected error: %v", err)
@@ -198,6 +217,14 @@ func TestSave_AndLoad_Roundtrip(t *testing.T) {
 	for i, kw := range loaded.Keywords {
 		if kw != original.Keywords[i] {
 			t.Errorf("Keywords[%d] roundtrip: got %q, want %q", i, kw, original.Keywords[i])
+		}
+	}
+	if len(loaded.Participants) != len(original.Participants) {
+		t.Fatalf("Participants roundtrip: got %d items, want %d", len(loaded.Participants), len(original.Participants))
+	}
+	for i, p := range loaded.Participants {
+		if p != original.Participants[i] {
+			t.Errorf("Participants[%d] roundtrip: got %q, want %q", i, p, original.Participants[i])
 		}
 	}
 }

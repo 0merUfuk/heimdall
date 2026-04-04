@@ -219,6 +219,22 @@ func runConfigInit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Default participants.
+	fmt.Print("Default meeting participants (comma-separated, or press Enter to skip): ")
+	participantsInput, _ := reader.ReadString('\n')
+	participantsInput = strings.TrimSpace(participantsInput)
+	if participantsInput != "" {
+		cfg.Participants = splitAndTrim(participantsInput, ",")
+	}
+
+	// Default keywords.
+	fmt.Print("Context keywords for analysis (comma-separated, or press Enter to skip): ")
+	keywordsInput, _ := reader.ReadString('\n')
+	keywordsInput = strings.TrimSpace(keywordsInput)
+	if keywordsInput != "" {
+		cfg.Keywords = splitAndTrim(keywordsInput, ",")
+	}
+
 	// Save the config.
 	if err := cfg.Save(cfgPath); err != nil {
 		return fmt.Errorf("saving config: %w", err)
@@ -367,8 +383,24 @@ func setConfigValue(cfg *config.Config, key, value string) error {
 		cfg.Output.IncludeTimestamps = value == "true"
 	case "output.language":
 		cfg.Output.Language = value
+	case "participants":
+		cfg.Participants = splitAndTrim(value, ",")
+	case "keywords":
+		cfg.Keywords = splitAndTrim(value, ",")
 	default:
 		return fmt.Errorf("unknown config key: %q", key)
 	}
 	return nil
+}
+
+// splitAndTrim splits s by sep and trims whitespace from each element,
+// discarding empty strings.
+func splitAndTrim(s, sep string) []string {
+	var result []string
+	for _, part := range strings.Split(s, sep) {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
 }

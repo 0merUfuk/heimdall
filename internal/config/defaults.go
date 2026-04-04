@@ -6,6 +6,9 @@ package config
 // DefaultConfig returns a Config populated with sensible defaults.
 // API keys are stored as environment variable references that must be
 // resolved via ResolveEnvVars before use.
+//
+// Participants and Keywords are intentionally empty in defaults.
+// Set via 'heimdall config init' or 'heimdall config set participants "Name1,Name2"'.
 func DefaultConfig() *Config {
 	return &Config{
 		Deepgram: DeepgramConfig{
