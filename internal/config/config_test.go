@@ -202,6 +202,136 @@ func TestSave_AndLoad_Roundtrip(t *testing.T) {
 	}
 }
 
+// TestProfile_Roundtrip verifies that profiles survive save/load.
+func TestProfile_Roundtrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	original := DefaultConfig()
+	original.Obsidian.VaultPath = "/tmp/vault"
+	original.Profiles = map[string]Profile{
+		"daily": {
+			Title:        "Daily Standup",
+			Participants: []string{"Alice", "Bob"},
+			Keywords:     []string{"sprint", "blockers"},
+			Language:     "en",
+		},
+		"1on1": {
+			Title:    "1:1 with Manager",
+			Language: "tr",
+		},
+	}
+
+	if err := original.Save(path); err != nil {
+		t.Fatalf("Save: unexpected error: %v", err)
+	}
+
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: unexpected error: %v", err)
+	}
+
+	if len(loaded.Profiles) != 2 {
+		t.Fatalf("Profiles count: got %d, want 2", len(loaded.Profiles))
+	}
+
+	daily := loaded.Profiles["daily"]
+	if daily.Title != "Daily Standup" {
+		t.Errorf("daily.Title: got %q, want %q", daily.Title, "Daily Standup")
+	}
+	if len(daily.Participants) != 2 {
+		t.Fatalf("daily.Participants count: got %d, want 2", len(daily.Participants))
+	}
+	if daily.Participants[0] != "Alice" {
+		t.Errorf("daily.Participants[0]: got %q, want Alice", daily.Participants[0])
+	}
+	if len(daily.Keywords) != 2 {
+		t.Fatalf("daily.Keywords count: got %d, want 2", len(daily.Keywords))
+	}
+	if daily.Language != "en" {
+		t.Errorf("daily.Language: got %q, want en", daily.Language)
+	}
+
+	oneOnOne := loaded.Profiles["1on1"]
+	if oneOnOne.Title != "1:1 with Manager" {
+		t.Errorf("1on1.Title: got %q, want %q", oneOnOne.Title, "1:1 with Manager")
+	}
+	if oneOnOne.Language != "tr" {
+		t.Errorf("1on1.Language: got %q, want tr", oneOnOne.Language)
+	}
+	if len(oneOnOne.Participants) != 0 {
+		t.Errorf("1on1.Participants: got %d, want 0", len(oneOnOne.Participants))
+	}
+}
+
+// TestLoad_WithProfiles verifies that profiles are loaded from YAML.
+func TestLoad_WithProfiles(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	content := `deepgram:
+  api_key: ${DEEPGRAM_API_KEY}
+  model: nova-3
+  language: en
+claude:
+  api_key: ${ANTHROPIC_API_KEY}
+  model: claude-haiku-4-5
+obsidian:
+  vault_path: /tmp/vault
+  meetings_folder: meetings
+  template: default
+audio:
+  system_audio: true
+  microphone: true
+  save_recording: false
+  recording_path: ~/.heimdall/recordings/
+output:
+  include_transcript: true
+  include_timestamps: true
+  language: en
+profiles:
+  standup:
+    title: Daily Standup
+    participants:
+      - Alice
+      - Bob
+    keywords:
+      - sprint
+    language: en
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("write test config: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: unexpected error: %v", err)
+	}
+
+	if len(cfg.Profiles) != 1 {
+		t.Fatalf("Profiles count: got %d, want 1", len(cfg.Profiles))
+	}
+
+	standup, ok := cfg.Profiles["standup"]
+	if !ok {
+		t.Fatal("Profiles: missing 'standup' profile")
+	}
+	if standup.Title != "Daily Standup" {
+		t.Errorf("standup.Title: got %q, want %q", standup.Title, "Daily Standup")
+	}
+	if len(standup.Participants) != 2 {
+		t.Fatalf("standup.Participants count: got %d, want 2", len(standup.Participants))
+	}
+}
+
+// TestDefaultConfig_ProfilesNil verifies that Profiles is nil by default.
+func TestDefaultConfig_ProfilesNil(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.Profiles != nil {
+		t.Errorf("Profiles: expected nil, got %v", cfg.Profiles)
+	}
+}
+
 // TestSave_CreatesParentDirs verifies that Save creates missing directories.
 func TestSave_CreatesParentDirs(t *testing.T) {
 	dir := t.TempDir()

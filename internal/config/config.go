@@ -12,12 +12,13 @@ import (
 
 // Config holds all heimdall configuration. Loaded from ~/.heimdall/config.yaml.
 type Config struct {
-	Deepgram DeepgramConfig `yaml:"deepgram"`
-	Claude   ClaudeConfig   `yaml:"claude"`
-	Obsidian ObsidianConfig `yaml:"obsidian"`
-	Audio    AudioConfig    `yaml:"audio"`
-	Output   OutputConfig   `yaml:"output"`
-	Keywords []string       `yaml:"keywords,omitempty"`
+	Deepgram DeepgramConfig     `yaml:"deepgram"`
+	Claude   ClaudeConfig       `yaml:"claude"`
+	Obsidian ObsidianConfig     `yaml:"obsidian"`
+	Audio    AudioConfig        `yaml:"audio"`
+	Output   OutputConfig       `yaml:"output"`
+	Keywords []string           `yaml:"keywords,omitempty"`
+	Profiles map[string]Profile `yaml:"profiles,omitempty"`
 }
 
 // DeepgramConfig holds Deepgram API configuration.
@@ -53,6 +54,14 @@ type OutputConfig struct {
 	IncludeTranscript bool   `yaml:"include_transcript"`
 	IncludeTimestamps bool   `yaml:"include_timestamps"`
 	Language          string `yaml:"language"`
+}
+
+// Profile holds per-meeting-type defaults that can be activated with --profile.
+type Profile struct {
+	Title        string   `yaml:"title,omitempty"`
+	Participants []string `yaml:"participants,omitempty"`
+	Keywords     []string `yaml:"keywords,omitempty"`
+	Language     string   `yaml:"language,omitempty"`
 }
 
 // envVarPattern matches ${VAR_NAME} references in config values.
