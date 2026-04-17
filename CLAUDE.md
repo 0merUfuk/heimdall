@@ -1,6 +1,6 @@
-**Version**: 1.1
+**Version**: 1.2
 **Created**: 2026-03-28
-**Last Updated**: 2026-03-28
+**Last Updated**: 2026-04-18
 **Authors:** Omer Ufuk
 
 ---
@@ -182,7 +182,7 @@ type Analyzer interface {
 
 ## Execution Plan
 
-The master execution plan lives at `docs/MASTER_PLAN.md`. It contains 19 subtasks across 5 phases with a dependency graph. The manager agent reads this file at session start and continues from the first unchecked item.
+The master execution plan lives at `docs/MASTER_PLAN.md`. It contains 19 subtasks across 6 phases (Phase 0 + 1A/1B/1C/1D/1E) with a dependency graph. The manager agent reads this file at session start and continues from the first unchecked item.
 
 **Phase summary:**
 - **Phase 0**: Foundation + Spike (types, interfaces, mic capture, Swift helper, mixer, Deepgram, end-to-end)

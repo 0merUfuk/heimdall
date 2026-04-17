@@ -1,8 +1,8 @@
 # Heimdall — MVP Specification (v1.0.0)
 
-**Version**: 1.0
+**Version**: 1.1
 **Created**: 2026-03-28
-**Last Updated**: 2026-03-28
+**Last Updated**: 2026-04-18
 **Authors:** Omer Ufuk
 
 ---
@@ -38,18 +38,17 @@
 ```bash
 # Record a meeting (interactive, long-running)
 heimdall record --title "Sprint Planning"
-heimdall record --title "1:1 with Sarah" --with "Sarah"
 heimdall record --title "Team Sync" --participants "Omer,Sarah,Mike"
-heimdall record --title "Sprint Planning" --app "Zoom"          # process-specific capture
-heimdall record --title "Sprint Planning" --save-audio          # also save raw WAV
 heimdall record --title "Sprint Planning" --keywords "Kubernetes,gRPC,CI/CD"
+heimdall record --profile daily                                  # use a saved profile
+heimdall record --language tr --title "Retro"                    # override STT language
 
 # Configure (first-run wizard)
 heimdall config init
 # Interactive wizard: Deepgram API key, Claude API key, Obsidian vault path
 
-# Show/set individual config values
-heimdall config get vault_path
+# Show/set individual config values (keys are dotted paths into the YAML config)
+heimdall config get obsidian.vault_path
 heimdall config set claude.model claude-sonnet-4-6
 
 # Diagnostics (validates all prerequisites)
@@ -302,21 +301,24 @@ type Analyzer interface {
 
 ## Audio Design Details
 
-### Dual-Channel Strategy (AD-007)
+### Dual-Channel Strategy (AD-007, superseded at the Deepgram boundary by ID-001)
 
-System audio and microphone are interleaved into stereo:
+System audio and microphone are interleaved into stereo inside the mixer:
 - **Left channel**: System audio (remote participants — what Zoom/Meet/Teams plays)
 - **Right channel**: Microphone (local user's voice)
 
-Sent to Deepgram with `multichannel=true`. Each channel processed independently.
+This L=system / R=mic convention is load-bearing for mixer and any downstream per-source processing — downmix, save-audio (future), debugging — and must not be swapped.
+
+Before the stream reaches Deepgram, `internal/session/session.go` downmixes the stereo frame to mono (averaging L+R). Deepgram receives **`channels=1` with `diarize=true`** — speakers are separated by voice fingerprint, not by channel assignment. This supports N-speaker meetings (the `multichannel` flag was dropped because it conflicts with `diarize` and caps identification at 2 speakers — one per channel; see ID-001 in `.claude/DECISIONS.md`).
 
 ### Audio Format Conversion
 
 | Source | Format | Conversion |
 |--------|--------|-----------|
-| Core Audio Taps (system) | 48kHz, 32-bit float, stereo | → 16kHz, 16-bit int, mono |
+| Core Audio Taps (system) | 48kHz, 32-bit float, stereo | → 16kHz, 16-bit int, mono (downmixed + resampled) |
 | malgo (microphone) | 16kHz, 16-bit int, mono | → no conversion needed |
-| Mixed output | 16kHz, 16-bit int, stereo | → Deepgram WebSocket |
+| Mixer output (internal) | 16kHz, 16-bit int, stereo (L=system, R=mic) | → downmixed to mono by `session.go` per ID-001 |
+| Deepgram WebSocket (wire) | 16kHz, 16-bit int, mono + `diarize=true` | (final format sent to Deepgram) |
 
 ### Ring Buffer
 
@@ -325,10 +327,11 @@ Sent to Deepgram with `multichannel=true`. Each channel processed independently.
 - Prevents backpressure from blocking audio capture
 - Audio is never dropped as long as reconnection completes within buffer duration
 
-### Raw WAV Recording (Optional)
+### Raw WAV Recording (Deferred)
 
-- Enabled via `--save-audio` flag (default: off)
-- Saved to `~/.heimdall/recordings/YYYY-MM-DD-title.wav`
-- ~110MB per hour (16kHz stereo 16-bit)
-- Streamed directly to disk (not held in memory)
+Raw WAV recording was scoped for v1.0 but did not ship — the record command has no `save audio` flag today (see `cmd/heimdall/record.go`). The design remains a candidate for a future release:
+
+- Target location: `~/.heimdall/recordings/YYYY-MM-DD-title.wav`
+- Footprint: ~110MB per hour (16kHz stereo 16-bit)
+- Stream directly to disk, not held in memory
 - Use case: re-process with different STT provider, speaker enrollment training data, backup
