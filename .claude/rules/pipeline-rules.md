@@ -1,6 +1,6 @@
 **Version**: 1.0
 **Created**: 2026-03-28
-**Last Updated**: 2026-03-28
+**Last Updated**: 2026-04-18
 **Authors:** Omer Ufuk
 
 ---
@@ -28,13 +28,13 @@ Each pipeline stage has ONE job. Never cross concerns:
 
 ---
 
-## Dual-Channel Convention (AD-007)
+## Runtime Channel Mode (ID-001, supersedes AD-007)
 
-- **Left channel** = system audio (remote meeting participants)
-- **Right channel** = microphone (local user)
-- **NEVER swap these** — Deepgram multichannel depends on consistent channel assignment
-- Resampling: system audio 48kHz → 16kHz before interleaving
-- Bit depth: 32-bit float → 16-bit int before interleaving
+- The mixer outputs stereo internally: **L = system audio, R = microphone**. Do not swap these — downstream code assumes the convention.
+- The session (`internal/session/session.go`) **downmixes stereo to mono** before handing off to Deepgram. `TranscribeOpts` sends `channels=1`, `diarize=true`, no `multichannel`.
+- Resampling: system audio 48kHz → 16kHz before mixing
+- Bit depth: 32-bit float → 16-bit int before mixing
+- Why mono: see `.claude/DECISIONS.md` ID-001. `multichannel=true` conflicted with `diarize=true` for N-speaker meetings.
 
 ---
 

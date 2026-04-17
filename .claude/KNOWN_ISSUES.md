@@ -1,6 +1,6 @@
 **Version**: 2.0
 **Created**: 2026-03-28
-**Last Updated**: 2026-03-31
+**Last Updated**: 2026-04-18
 **Authors:** Omer Ufuk
 
 ---
@@ -32,13 +32,12 @@ These are documented trade-offs, not bugs:
 
 | Limitation | Mitigation |
 |-----------|-----------|
-| Speaker ID resets on WebSocket reconnection | Channel index used as speaker ID in multichannel mode (AD-008) |
+| Speaker ID resets on WebSocket reconnection | Diarize mode uses Deepgram-assigned speaker IDs per connection; IDs may differ across reconnections. ID-001 documents the mono+diarize runtime path. |
 | No local ASR fallback in v1.0 | Planned for v2.0 (Whisper.cpp) |
 | System audio requires macOS 14.2+ | Doctor validates version, clear error message |
 | Deepgram Turkish code-switching not supported | `--keywords` flag for English tech terms in Turkish meetings |
 | LLM may hallucinate action items | Anti-hallucination prompt engineering (V-013) |
 | Transcript content as prompt injection vector | Delimiter wrapping + sanitized --participants/--keywords (V-014) |
-| Stereo billing doubles Deepgram cost | Documented in README cost table |
 
 ---
 

@@ -1,6 +1,6 @@
 **Version**: 1.0
 **Created**: 2026-03-28
-**Last Updated**: 2026-03-28
+**Last Updated**: 2026-04-18
 **Authors:** Omer Ufuk
 
 ---
@@ -67,7 +67,7 @@ close(frameCh) // panic if producer sends after close
 
 - Microphone: 16kHz, 16-bit signed int, mono
 - System audio (from Swift): 48kHz, 32-bit float, stereo → resample to 16kHz, 16-bit int
-- Deepgram expects: 16kHz, 16-bit linear PCM, 2 channels (L=system, R=mic)
+- Deepgram receives: 16kHz, 16-bit linear PCM, **mono (1 channel), with `diarize=true`**. The mixer produces stereo internally; `session.go` downmixes to mono before transcription (see `.claude/DECISIONS.md` ID-001).
 - Use integer-ratio fast path when resampling 48→16 (ratio 3:1, take every 3rd sample)
 
 ---

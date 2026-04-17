@@ -2,7 +2,7 @@
 
 **Version**: 1.0
 **Created**: 2026-03-28
-**Last Updated**: 2026-03-28
+**Last Updated**: 2026-04-18
 **Authors:** Omer Ufuk
 
 ---
@@ -17,7 +17,7 @@
 | AD-004 | Post-meeting Claude processing (not real-time) | Accepted | 2026-03-28 |
 | AD-005 | File-based Obsidian integration (no plugin) | Accepted | 2026-03-28 |
 | AD-006 | MIT License (tentative — revisit at distribution) | Proposed | 2026-03-28 |
-| AD-007 | Dual-channel stereo audio (L=system, R=mic) | Accepted | 2026-03-28 |
+| AD-007 | Dual-channel stereo audio (L=system, R=mic) | Superseded by ID-001 | 2026-03-28 |
 | AD-008 | LLM-based contextual speaker identification for MVP | Accepted | 2026-03-28 |
 | AD-009 | CLI-first, web dashboard deferred to post-v1.0 | Accepted | 2026-03-28 |
 | AD-010 | macOS 14.2+ minimum (Core Audio Taps requirement) | Accepted | 2026-03-28 |
@@ -52,9 +52,11 @@
 
 **Decision**: Deepgram Nova-3 with diarization add-on ($0.58/hr all-in).
 
+**Amendment (2026-03-29 via docs/GRILL_REPORT.md)**: The $0.58/hr figure is the mono rate. Heimdall originally sent stereo (see AD-007) which Deepgram bills at 2×, making real cost ~$1.16/hr and the $200 free credit worth ~170 hours (not 345 hours). As of ID-001 (2026-04-01), heimdall sends mono audio again, so current cost is back to ~$0.58/hr with `diarize=true`. The README cost table is kept at stereo rates for conservative user estimates; the actual mono billing is cheaper.
+
 **Key factors**:
 - Official Go SDK with WebSocket streaming support
-- $200 free credit (~345 hours of meetings, ~7 months of heavy use)
+- $200 free credit (~170-345 hours depending on channel mode (see Amendment above))
 - Same rate for streaming and batch (no premium for real-time)
 - Sub-300ms latency
 
@@ -146,8 +148,11 @@ type Analyzer interface {
 
 ## AD-007: Dual-Channel Stereo Audio
 
-**Status**: Accepted
+**Status**: Superseded by ID-001 (2026-04-01)
 **Date**: 2026-03-28
+**Superseded Date**: 2026-04-01
+
+> **Superseded by `.claude/DECISIONS.md` ID-001**: The mixer still produces stereo (L=system, R=mic) internally, but `internal/session/session.go` downmixes to mono before Deepgram. `TranscribeOpts` sends `channels=1` with `diarize=true`, not `multichannel=true`. The rationale below is preserved for historical context but does not describe the current runtime path.
 
 **Context**: System audio and microphone are two separate audio sources. They can be mixed into mono, sent as stereo, or sent as separate streams.
 
