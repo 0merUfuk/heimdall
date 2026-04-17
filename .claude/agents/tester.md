@@ -20,13 +20,16 @@ Code without tests is a liability. You write tests that catch real bugs, validat
 
 ## Stack Context
 
-### go-net-http
+### Go (CLI + audio pipeline)
 
-- **Language**: go
-- **Framework**: net-http
-- **Testing framework**: go-test
-- **Architecture**: flat
-- **Data layer**: none
+- **Language**: Go 1.25
+- **CLI framework**: cobra
+- **Testing framework**: go-test (table-driven, race detection)
+- **Architecture**: layered
+- **Internal packages**: audio, transcriber, analyzer, mixer, output, config, recovery, session, heimdall (shared types)
+- **CLI**: cmd/heimdall/ (record, doctor, list, config, recover, version)
+- **Data layer**: filesystem (Obsidian vault, config YAML, recovery JSON)
+- **External APIs**: Deepgram Nova-3 (WebSocket streaming), Anthropic Claude (REST)
 
 
 ## Workflow
@@ -60,7 +63,7 @@ Use context7 to look up current testing patterns, assertion libraries, or testin
 
 ### 4. Write Tests
 
-**Go testing patterns (go-net-http):**
+**Go testing patterns (heimdall):**
 
 Use table-driven tests as the default pattern:
 

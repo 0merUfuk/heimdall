@@ -2,7 +2,7 @@
 
 **Version**: 1.0
 **Created**: 2026-03-28
-**Last Updated**: 2026-03-28
+**Last Updated**: 2026-04-18
 **Authors:** Omer Ufuk
 
 ---
@@ -110,7 +110,7 @@ The pipeline has 6 stages. The LLM appears in exactly ONE stage (Stage 5), after
 └─────────────────────┬───────────────────────────────────────┘
                       │
 ┌─────────────────────▼───────────────────────────────────────┐
-│                    STAGE 6: RENDER + WRITE                   │
+│                    STAGE 6: RENDER                           │
 │                    (Template Engine + File I/O — Go)         │
 │                                                             │
 │  Go text/template renders Obsidian-native markdown:         │
@@ -142,12 +142,9 @@ The pipeline has 6 stages. The LLM appears in exactly ONE stage (Stage 5), after
 
 ## Dual-Channel Audio Strategy
 
-System audio and microphone are sent as a **stereo stream** (L=system, R=mic) to Deepgram with `multichannel=true`. This gives the STT engine a structural hint: left channel = remote participants, right channel = local user.
+The mixer interleaves system audio and microphone into a **stereo stream** (L=system, R=mic) for internal routing. Before transmission to Deepgram, `internal/session/session.go` downmixes to mono. Deepgram receives `channels=1` with `diarize=true` — speakers are separated by voice fingerprint. This supports N-speaker meetings (the `multichannel` flag was dropped per ID-001 because it conflicts with `diarize` and caps identification at 2 speakers per channel). See `.claude/DECISIONS.md`.
 
-Benefits:
-- Better diarization accuracy (channels are pre-separated)
-- Reduces echo/duplication when user uses speakers instead of headphones
-- Deepgram processes each channel independently and merges results
+The L=system / R=mic convention is preserved internally so downstream code (recovery, raw WAV dumps) can still distinguish remote participants from the local user.
 
 ---
 

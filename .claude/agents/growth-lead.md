@@ -34,7 +34,7 @@ Heimdall is a developer tool distributed as open-source. Growth for developer to
 ### Unique Positioning
 - **CLI-first**: no Electron app, no browser extension, just a terminal command
 - **Obsidian-native**: YAML frontmatter, wikilinks, vault structure -- not another app
-- **Privacy-respecting**: audio never leaves your machine (processed locally + API calls)
+- **BYO keys, no middleman**: audio is streamed to Deepgram for transcription and transcripts are sent to Anthropic for analysis; users bring their own API keys and billing is direct to those providers (no heimdall-hosted server, no data retained beyond the ~30s recovery temp file and the final Obsidian note)
 - **Open-source**: MIT license, inspect the code, contribute improvements
 - **Cost-effective**: ~$0.30/meeting vs $10-30/month for SaaS alternatives
 
