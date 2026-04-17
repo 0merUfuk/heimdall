@@ -1,6 +1,29 @@
 # Changelog
 
-## v1.0.0 (Unreleased)
+## v0.1.0 (Unreleased)
+
+### Added
+- Meeting profiles feature -- define per-meeting-type defaults (language, keywords, participants, output formatting) and select with `--profile` (PR #14)
+- `heimdall config init` -- interactive setup wizard (PR #14)
+- `heimdall config show` -- print the resolved config (PR #14)
+- `heimdall config edit` -- open the config file in `$EDITOR` (PR #14)
+- `heimdall config path` -- print the config file path (PR #14)
+- `heimdall config add-profile` -- add a new profile (PR #14)
+- `heimdall config profiles` -- list defined profiles (PR #14)
+- `--profile <name>` flag on `heimdall record` to select a profile at recording time (PR #14)
+
+### Changed
+- Transcription runtime switched from multichannel to mono + diarization (PR #11). Deepgram now receives `channels=1` with `diarize=true`; speaker IDs are assigned by voice fingerprint. The mixer still produces stereo internally; `session.go` downmixes to mono before handing off to the transcriber. See `.claude/DECISIONS.md` ID-001 (supersedes AD-007).
+- Config validation errors surface clearly to the user instead of generic wrapped errors (PR #10).
+- User-facing guardrails added on all failure paths (PR #12, follow-ups in PR #13) -- missing API keys, vault path not found, permission denied, and subprocess crashes all produce actionable error messages instead of stack traces.
+- Documentation refresh -- architecture docs, reading lists, and cross-references updated to match the shipped codebase (PR #9).
+
+### Fixed
+- Config validation -- invalid YAML, missing required fields, and bad type coercion now fail fast with specific line/field errors rather than silent defaults (PR #10).
+
+## v0.1.0-rc baseline (2026-03-31)
+
+> Historical snapshot: this content documents the v1.0-scope work completed through PR #8. Retained for reference; the v0.1.0 release aggregates this baseline with the PR #9-14 changes above.
 
 ### Features
 - Live meeting recording with dual-channel audio capture (system + microphone)
@@ -9,13 +32,13 @@
 - Obsidian vault integration with YAML frontmatter and wikilinks
 - Turkish and multi-language support
 - Crash recovery with automatic transcript preservation
-- `heimdall record` — full pipeline recording command
-- `heimdall doctor` — prerequisite checker
-- `heimdall list` — past meeting browser
-- `heimdall recover` — scan and re-analyze orphaned recovery transcripts
-- `heimdall analyze --file <path>` — re-analyze a specific transcript file
-- `heimdall config init/get/set` — configuration management commands
-- `heimdall version` — version info
+- `heimdall record` -- full pipeline recording command
+- `heimdall doctor` -- prerequisite checker
+- `heimdall list` -- past meeting browser
+- `heimdall recover` -- scan and re-analyze orphaned recovery transcripts
+- `heimdall analyze --file <path>` -- re-analyze a specific transcript file
+- `heimdall config init` (pre-PR#14 basic wizard), `get`, `set` -- configuration management commands
+- `heimdall version` -- version info
 
 ### Bug Fixes (31-bug sweep, PR #8)
 - Fixed root cause of empty transcription: `diarize=true` and `multichannel=true` conflict
@@ -47,7 +70,7 @@
 - Explicit file permissions (0600) in atomic recovery writes
 
 ### Architecture
-- 6-stage pipeline: Capture → Mix → Transcribe → Accumulate → Analyze → Render
+- 6-stage pipeline: Capture -> Mix -> Transcribe -> Accumulate -> Analyze -> Render
 - Go + Swift dual-binary (heimdall + heimdall-audio)
 - Provider abstraction: swappable AudioSource, Transcriber, Analyzer, Writer interfaces
 - V-001: Deepgram WebSocket proactive reconnection at 55 minutes
