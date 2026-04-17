@@ -1,5 +1,7 @@
 # AI Meeting Buddy -- Strategic Research Brief
 
+> **HISTORICAL** — superseded by `docs/STRATEGY_V2.md` (2026-04-16 strategic audit). Kept for reference.
+
 **Date**: 2026-03-28
 **Author**: Strategist Agent (research), Omer Ufuk (direction)
 **Status**: Research Complete -- Ready for Decision

@@ -2,8 +2,19 @@
 
 **Version**: 1.0
 **Created**: 2026-03-28
-**Last Updated**: 2026-03-28
+**Last Updated**: 2026-04-18
 **Authors:** Omer Ufuk
+
+---
+
+## Strategy & Execution
+
+| Document | Purpose | Status |
+|----------|---------|--------|
+| [MASTER_PLAN.md](MASTER_PLAN.md) | 19-subtask execution plan with dependency graph and acceptance criteria | 18/19 complete |
+| [STRATEGY_V2.md](STRATEGY_V2.md) | Post-grill strategic pivot — local-first, Obsidian-native, MCP-first (supersedes architecture/STRATEGY.md) | Current |
+| [GRILL_REPORT.md](GRILL_REPORT.md) | 20-agent grill audit that produced STRATEGY_V2 | Historical |
+| [MANUAL_TESTING.md](MANUAL_TESTING.md) | Step-by-step end-to-end manual test scenarios (7 scenarios + smoke test) | Current |
 
 ---
 
@@ -17,7 +28,7 @@
 | [MVP.md](architecture/MVP.md) | v1.0 specification — commands, config, templates, cost, audio design | Complete |
 | [ROADMAP.md](architecture/ROADMAP.md) | Phased roadmap from spike through v4.0 with timeline estimates | Complete |
 | [ASSESSMENT.md](architecture/ASSESSMENT.md) | Engineering vulnerability assessment — 28 findings with mitigations | Complete |
-| [STRATEGY.md](architecture/STRATEGY.md) | Full strategic research — market analysis, competitive landscape, API pricing, technical feasibility | Complete |
+| [STRATEGY.md](architecture/STRATEGY.md) | Full strategic research — market analysis, competitive landscape, API pricing, technical feasibility | Historical (superseded by STRATEGY_V2.md) |
 
 ---
 

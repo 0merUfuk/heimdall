@@ -50,28 +50,31 @@
 
 ## Phase Plan
 
-### Phase 2A: Ship & Fix (Week 1) ← YOU ARE HERE
+### Phase 2A: Ship & Fix (Week 1)
 
 **Goal**: Tag v1.0, fix the bugs that would embarrass you on launch day.
 
 | Task | Priority | Effort | Details |
 |------|----------|--------|---------|
-| Fix `Close()` deadlock after reconnection | P0 | 2-4hr | Track all superseded connections in Close(), close them before wg.Wait() |
-| Fix `SystemAudioSource.Err()` consumption | P0 | 1hr | Select on errCh in session.go, surface permission errors to terminal |
-| Fix `doctor` macOS version validation | P0 | 30min | Parse major.minor, verify ≥14.2 |
-| Add recording consent warning | P0 | 30min | Print warning + require `--consent-acknowledged` or interactive y/N |
-| Fix `note.Platform` in live record path | P1 | 15min | Set from `--app` flag or "zoom"/"meet" default |
-| Fix `--app` flag (remove or implement) | P1 | 30min | Remove the flag from CLI if not implemented; don't lie |
-| Add `mip_opt_out=true` to Deepgram URL | P1 | 5min | One line in buildURL() |
-| Fix Turkish filename regex | P1 | 15min | `[^a-z0-9-]+` → `[^\p{L}\p{N}-]+` |
-| Wire `AnalyzeOpts.Language` in record.go | P1 | 15min | Pass `recordLanguage` to analyzeOpts |
-| Make `buildUserPrompt` language-aware | P1 | 30min | When language != "en", instruct Claude on output language |
-| Add data flow section to README | P1 | 30min | Document what goes to Deepgram/Anthropic |
-| Correct AD-002 pricing (stereo 2x billing) | P1 | 15min | New ADR in DECISIONS.md |
-| Tag v1.0.0, push release | P0 | 15min | GoReleaser, create GitHub release |
+| Fix `Close()` deadlock after reconnection | P0 | 2-4hr | [x] Shipped in PR #8 — Track all superseded connections in Close(), close them before wg.Wait() |
+| Fix `SystemAudioSource.Err()` consumption | P0 | 1hr | [x] Shipped in PR #8 — Select on errCh in session.go, surface permission errors to terminal |
+| Fix `doctor` macOS version validation | P0 | 30min | [x] Shipped in PR #8 — Parse major.minor, verify ≥14.2 |
+| Add recording consent warning | P0 | 30min | [x] Shipped in PR #12 — guardrails on every failure path |
+| Fix `note.Platform` in live record path | P1 | 15min | [x] Shipped in PR #8 — Set from `--app` flag or "zoom"/"meet" default |
+| Fix `--app` flag (remove or implement) | P1 | 30min | [x] Shipped in PR #8 — `--app` removed as dead flag (see CHANGELOG) |
+| Add `mip_opt_out=true` to Deepgram URL | P1 | 5min | [x] Shipped in PR #8 — One line in buildURL() |
+| Fix Turkish filename regex | P1 | 15min | [x] Shipped in PR #8 — `[^a-z0-9-]+` → `[^\p{L}\p{N}-]+` |
+| Wire `AnalyzeOpts.Language` in record.go | P1 | 15min | [x] Shipped in PR #8 — Pass `recordLanguage` to analyzeOpts |
+| Make `buildUserPrompt` language-aware | P1 | 30min | [x] Shipped in PR #8 — When language != "en", instruct Claude on output language |
+| Add data flow section to README | P1 | 30min | [x] Shipped in PR #9 — docs refresh |
+| Correct AD-002 pricing (stereo 2x billing) | P1 | 15min | [x] Shipped — AD-002 amended for $1.16/hr stereo billing |
+| Wire `--keywords` to Deepgram URL (F-28) | P1 | 15min | [x] Shipped — `TranscribeOpts.Keywords` now passed through WebSocket URL |
+| Tag v0.1.0, push release | P0 | 15min | ← YOU ARE HERE — GoReleaser, create GitHub release |
 | Create Homebrew tap repo | P0 | 1hr | `homebrew-heimdall` repo, goreleaser integration |
 
 **Exit criteria**: `brew install heimdall` works, all P0 bugs fixed, release tagged.
+
+**Status (2026-04-18)**: 18/19 MASTER_PLAN subtasks complete; only 1E.2 (final review + release tag) remains. All P0 correctness fixes above have landed across PRs #8–#14.
 
 ---
 
@@ -178,9 +181,9 @@ These items from the v1.0 roadmap are **deprioritized or dropped**:
 ## Success Metrics
 
 ### Month 1 (End of Phase 2B)
-- [ ] v1.0.0 tagged and released
+- [ ] v0.1.0 tagged and released
 - [ ] `brew install heimdall` works
-- [ ] All P0 bugs from grill report fixed
+- [x] All P0 bugs from grill report fixed (PR #8 31-bug sweep; PRs #10/#11/#12/#14 follow-ups)
 - [ ] Local Whisper mode functional (zero API keys needed)
 
 ### Month 2 (End of Phase 2D)
