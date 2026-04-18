@@ -8,12 +8,12 @@ globs:
 
 ## Stack: go / net-http
 
-- Architecture: flat
+- Architecture: layered (internal/ packages + cmd/heimdall/ CLI)
 - Testing: go-test
 - Data layer: none
 
 ## Conventions
 
-- Follow the flat architecture pattern
+- Follow the layered architecture pattern: each internal/ package has a single concern (audio, transcriber, analyzer, mixer, output, config, recovery, session)
 - Write tests using go-test
-- Reference `.claude/knowledge/go-net-http/` for best practices
+- Reference `.claude/knowledge/go-rules/` for best practices

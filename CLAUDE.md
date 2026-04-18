@@ -25,13 +25,14 @@ Heimdall is a CLI meeting companion: captures audio, transcribes with speaker di
 ## Before Working Here
 
 1. Read `docs/MASTER_PLAN.md` — **19-subtask execution plan with dependencies and acceptance criteria**
-2. Read `docs/architecture/PIPELINE.md` — 6-stage pipeline architecture
-3. Read `docs/architecture/DECISIONS.md` — all architectural decisions (AD-001 to AD-010)
-4. Read `docs/architecture/MVP.md` — v1.0 specification, commands, config, templates
-5. Read `docs/architecture/ASSESSMENT.md` — 28 known vulnerabilities and mitigations
-6. Read `docs/architecture/ROADMAP.md` — phased roadmap from spike to v4.0
-7. Read `.claude/SERVICE_CONTEXT.md` — current implementation state
-8. Read `.claude/NEXT_STEPS.md` — prioritized work items
+2. Read `docs/STRATEGY_V2.md` — current strategy and roadmap pointer (supersedes `docs/architecture/STRATEGY.md`)
+3. Read `docs/architecture/PIPELINE.md` — 6-stage pipeline architecture
+4. Read `docs/architecture/DECISIONS.md` — all architectural decisions (AD-001 to AD-010)
+5. Read `docs/architecture/MVP.md` — v1.0 specification, commands, config, templates
+6. Read `docs/architecture/ASSESSMENT.md` — 28 known vulnerabilities and mitigations
+7. Read `docs/architecture/ROADMAP.md` — phased roadmap from spike to v4.0
+8. Read `.claude/SERVICE_CONTEXT.md` — current implementation state
+9. Read `.claude/NEXT_STEPS.md` — prioritized work items
 
 ---
 
