@@ -9,9 +9,9 @@
 
 ## Current State
 
-v1.0 implementation complete. 31-bug sweep merged (PR #8). Pipeline tested and verified. Ready for real-voice smoke testing and v1.0.0 tag.
+v1.0 feature scope implementation complete. 31-bug sweep merged (PR #8). Pipeline tested and verified. Ready for real-voice smoke testing and v0.1.0 tag.
 
-- **Status**: v1.0.0-rc -- all bugs fixed, pending smoke test + release tag
+- **Status**: v0.1.0 -- all bugs fixed, pending smoke test + release tag
 - **Execution plan**: `docs/MASTER_PLAN.md` -- 19/19 subtasks complete
 - **Strategy**: `docs/STRATEGY_V2.md` -- post-grill execution plan
 - **Build**: `make build` produces `bin/heimdall` (Go) + `bin/heimdall-audio` (Swift)
