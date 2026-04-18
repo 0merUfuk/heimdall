@@ -21,14 +21,14 @@ All 18 completed MASTER_PLAN subtasks executed. Security review passed (PR #6). 
 | Task | Status |
 |------|--------|
 | Smoke test with real voices (docs/MANUAL_TESTING.md) | PENDING |
-| Tag v1.0.0 release | PENDING (after smoke test) |
+| Tag v0.1.0 release | PENDING (after smoke test) |
 | Create Homebrew tap repo | NOT STARTED |
 
 ## Phase 2 (from STRATEGY_V2.md)
 
 | Phase | Goal | Timeline |
 |-------|------|----------|
-| 2A: Ship & Fix | Tag v1.0.0, Homebrew tap | Week 1 |
+| 2A: Ship & Fix | Tag v0.1.0, Homebrew tap | Week 1 |
 | 2B: Local Transcription | Whisper.cpp default, zero API keys | Weeks 2-3 |
 | 2C: MCP Server | Meeting data queryable by Claude Desktop | Weeks 3-4 |
 | 2D: Launch | Obsidian community, README rewrite, first 50 users | Week 5 |

@@ -11,7 +11,7 @@
 
 v1.0 feature-complete through PR #14 (profiles + config UX). Pipeline tested. 18 of 19 MASTER_PLAN subtasks complete — 1E.2 (final review + release) open.
 
-- **Status**: v1.0.0-rc — 18/19 MASTER_PLAN subtasks complete, pending v0.1.0 release tag (see NEXT_STEPS)
+- **Status**: v0.1.0 — 18/19 MASTER_PLAN subtasks complete, pending v0.1.0 release tag (see NEXT_STEPS)
 - **Execution plan**: `docs/MASTER_PLAN.md` -- 18/19 subtasks complete (1E.2 — final review + release — pending)
 - **Strategy**: `docs/STRATEGY_V2.md` -- post-grill execution plan
 - **Build**: `make build` produces `bin/heimdall` (Go) + `bin/heimdall-audio` (Swift)

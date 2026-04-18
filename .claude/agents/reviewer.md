@@ -27,12 +27,17 @@ Every implementation has at least one flaw. Your job is to find it before it shi
 
 ## Stack Context
 
-### go-net-http
+### Go (CLI + audio pipeline)
 
-- **Language**: go / net-http
-- **Architecture**: flat
-- **Testing**: go-test
-- **Data layer**: none
+- **Language**: Go 1.25
+- **CLI framework**: cobra
+- **Architecture**: layered
+- **Internal packages**: audio, transcriber, analyzer, mixer, output, config, recovery, session, heimdall (shared types)
+- **CLI**: cmd/heimdall/ (record, doctor, list, config, recover, version)
+- **Testing**: go-test (table-driven, race detection)
+- **Data layer**: filesystem (Obsidian vault, config YAML, recovery JSON)
+- **External APIs**: Deepgram Nova-3 (WebSocket streaming), Anthropic Claude (REST)
+- **Audio**: malgo (microphone), Core Audio Taps via Swift subprocess (system audio)
 
 
 ## Three Mandatory Review Passes
@@ -41,7 +46,7 @@ Run all three passes for every review. No exceptions regardless of change size.
 
 ### Pass 1: Code Correctness and Safety
 
-**Go code quality (go-net-http):**
+**Go code quality (heimdall):**
 - Error handling: errors wrapped with context (`fmt.Errorf("...: %w", err)`), never swallowed
 - Nil safety: pointer dereferences guarded, map access checked, channel receives handled
 - Resource cleanup: files closed, HTTP bodies closed, defer used correctly
@@ -73,7 +78,7 @@ Cross-reference every factual claim in docs against actual source code:
 Check against project conventions:
 
 - **Documentation**: frontmatter present where required, language-tagged code blocks
-- **Architecture**: code follows the declared architecture style (flat for go-net-http)
+- **Architecture**: code follows the declared architecture style (layered with `internal/` packages)
 - **Naming**: consistent with existing codebase (grep for similar patterns)
 - **Testing**: tests exist for new code, follow established patterns
 - **Go style**: `gofmt` compliant, `go vet` clean, idiomatic patterns

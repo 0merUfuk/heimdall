@@ -25,6 +25,7 @@ import (
 type MeetingSession struct {
 	title       string
 	language    string
+	keywords    []string
 	system      audio.AudioSource
 	mic         audio.AudioSource
 	mixer       *mixer.Mixer
@@ -49,13 +50,17 @@ type MeetingSession struct {
 // system may be nil if system audio is not available (mic-only mode).
 // t must be a valid Transcriber instance.
 // language is the Deepgram language code (e.g., "en", "tr", "multi").
-func NewMeetingSession(title string, system audio.AudioSource, mic audio.AudioSource, t transcriber.Transcriber, language string) *MeetingSession {
+// keywords is a list of context terms forwarded to Deepgram's vocabulary
+// boost (keywords URL param) to improve recognition of domain-specific
+// words (e.g., "Kubernetes", "gRPC"). May be nil.
+func NewMeetingSession(title string, system audio.AudioSource, mic audio.AudioSource, t transcriber.Transcriber, language string, keywords []string) *MeetingSession {
 	if language == "" {
 		language = "en"
 	}
 	return &MeetingSession{
 		title:       title,
 		language:    language,
+		keywords:    keywords,
 		system:      system,
 		mic:         mic,
 		transcriber: t,
@@ -167,6 +172,7 @@ func (s *MeetingSession) Start(ctx context.Context) error {
 		Diarize:     true,
 		Punctuate:   true,
 		SmartFormat: true,
+		Keywords:    s.keywords,
 	}
 
 	if err := s.transcriber.Connect(s.ctx, opts); err != nil {

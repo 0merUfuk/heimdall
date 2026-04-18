@@ -1,8 +1,8 @@
 # Heimdall — Phased Roadmap
 
-**Version**: 1.0
+**Version**: 1.1
 **Created**: 2026-03-28
-**Last Updated**: 2026-03-28
+**Last Updated**: 2026-04-18
 **Authors:** Omer Ufuk
 
 ---
@@ -15,14 +15,16 @@ The roadmap progresses from a 1-week validation spike through a full-featured v1
 
 ## Phase 0: Spike (1 week)
 
+> **SHIPPED** (all deliverables complete as of 2026-04-18). This phase proved the end-to-end audio → transcript pipeline and gated everything downstream. See `docs/MASTER_PLAN.md` Progress Tracker for per-subtask status.
+
 **Goal**: Prove the audio capture → Deepgram streaming pipeline works end-to-end.
 
 **Deliverables**:
-- [ ] Swift audio helper captures system audio from a Zoom/Meet call
-- [ ] Go binary spawns Swift helper, reads PCM from stdout pipe
-- [ ] PCM streamed to Deepgram WebSocket, diarized transcript returned
-- [ ] Diarized transcript printed to terminal in real-time
-- [ ] Microphone capture via malgo working alongside system audio
+- [x] Swift audio helper captures system audio from a Zoom/Meet call
+- [x] Go binary spawns Swift helper, reads PCM from stdout pipe
+- [x] PCM streamed to Deepgram WebSocket, diarized transcript returned
+- [x] Diarized transcript printed to terminal in real-time
+- [x] Microphone capture via malgo working alongside system audio
 
 **Kill criteria**:
 - If Deepgram diarization quality on real meeting audio is below 80% accuracy → re-evaluate API choice
@@ -35,33 +37,35 @@ The roadmap progresses from a 1-week validation spike through a full-featured v1
 
 ## Phase 1: MVP (3-4 weeks) — v1.0.0
 
+> **SHIPPED** (18/19 subtasks complete as of 2026-04-18). The entire record-to-Obsidian pipeline is functional; distribution/Homebrew publishing is the only outstanding item (MASTER_PLAN subtask 1E.2). A few originally-scoped features were deferred to later phases (see struck-through items below) and moved to Phase 2+.
+
 **Goal**: Complete record-to-Obsidian pipeline. A usable tool.
 
 **Deliverables**:
-- [ ] `heimdall record` command with live terminal transcript display
-- [ ] System audio + microphone dual-channel capture
-- [ ] Deepgram streaming STT + diarization with 60-minute reconnection (V-001)
-- [ ] Network disruption reconnection + audio buffering (V-005)
-- [ ] Swift subprocess crash detection + restart (V-002)
-- [ ] Claude post-meeting summarization with structured output
-- [ ] LLM-based contextual speaker identification
-- [ ] Obsidian vault markdown output with Go templates
-- [ ] `heimdall config init` wizard
-- [ ] `heimdall doctor` diagnostic command (V-003, V-019, V-020)
-- [ ] `heimdall status` — show API key validity, audio devices, vault path
-- [ ] `heimdall recover` — crash recovery from temp files (V-006)
-- [ ] `heimdall analyze` — standalone re-analysis command (V-009)
-- [ ] `--participants` flag for speaker identification hints (V-012)
-- [ ] `--keywords` flag for custom vocabulary (V-023)
-- [ ] `--save-audio` flag for optional WAV recording
-- [ ] File naming collision prevention (V-017)
-- [ ] Vault path validation at startup (V-016)
-- [ ] Graceful shutdown sequence (Ctrl+C)
-- [ ] Claude API retry with fallback to raw transcript (V-009)
-- [ ] Anti-hallucination prompt engineering (V-013)
-- [ ] Prompt injection mitigation via structured output (V-014)
-- [ ] GitHub repo, MIT license, README
-- [ ] Homebrew tap initial setup
+- [x] `heimdall record` command with live terminal transcript display
+- [x] System audio + microphone dual-channel capture
+- [x] Deepgram streaming STT + diarization with 60-minute reconnection (V-001)
+- [x] Network disruption reconnection + audio buffering (V-005)
+- [x] Swift subprocess crash detection + restart (V-002)
+- [x] Claude post-meeting summarization with structured output
+- [x] LLM-based contextual speaker identification
+- [x] Obsidian vault markdown output with Go templates
+- [x] `heimdall config init` wizard
+- [x] `heimdall doctor` diagnostic command (V-003, V-019, V-020)
+- [ ] ~~`heimdall status` — show API key validity, audio devices, vault path~~ _(deferred — `heimdall doctor` covers this in practice; dedicated status command not implemented)_
+- [x] `heimdall recover` — crash recovery from temp files (V-006)
+- [x] `heimdall analyze` — standalone re-analysis command (V-009) _(separate top-level subcommand `heimdall analyze --file <path>`, registered independently on `rootCmd`; shares source file `cmd/heimdall/recover.go` with `heimdall recover` but has its own cobra.Command, flag set, and RunE)_
+- [x] `--participants` flag for speaker identification hints (V-012)
+- [x] `--keywords` flag for custom vocabulary (V-023)
+- [ ] ~~`--save-audio` flag for optional WAV recording~~ _(deferred; config field `audio.save_recording` exists but is not yet wired to the record command — moved to Phase 2+)_
+- [x] File naming collision prevention (V-017)
+- [x] Vault path validation at startup (V-016)
+- [x] Graceful shutdown sequence (Ctrl+C)
+- [x] Claude API retry with fallback to raw transcript (V-009)
+- [x] Anti-hallucination prompt engineering (V-013)
+- [x] Prompt injection mitigation via structured output (V-014)
+- [x] GitHub repo, MIT license, README
+- [ ] Homebrew tap initial setup _(outstanding — MASTER_PLAN subtask 1E.2)_
 
 ---
 

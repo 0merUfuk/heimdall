@@ -21,6 +21,8 @@ Research sources are cited inline and collected at the end.
 
 ### V-001: Deepgram 60-Minute WebSocket Timeout Kills Long Meetings
 
+**Implemented (verify PR)** — proactive reconnection at 55 minutes with monotonic `timeOffset` is wired in `internal/transcriber/deepgram.go` (see `defaultReconnectInterval`, `handleDisconnect`). Ring-buffer catch-up on reconnect uses `internal/mixer/ring_buffer.go`.
+
 **Stage**: 3 (Transcribe)
 **Severity**: Critical
 **Likelihood**: Common (any meeting over 60 minutes)
@@ -43,6 +45,8 @@ Reconnection is non-trivial: timestamps reset to 00:00:00 on a new connection, s
 
 ### V-002: Swift Subprocess Crash = Silent Audio Loss
 
+**Implemented (verify PR)** — watchdog + auto-restart (1s/2s/4s backoff, max 3 retries) in `internal/audio/system.go` (`maxRestartAttempts`, `ErrRestartExhausted`, watchdog goroutine).
+
 **Stage**: 1 (Capture)
 **Severity**: Critical
 **Likelihood**: Occasional (process crash, OOM, Core Audio API errors)
@@ -63,6 +67,8 @@ Critical subtlety: Core Audio Taps require that the target process is actively p
 ---
 
 ### V-003: Screen Recording Permission Not Granted -- Cryptic Failure
+
+**Implemented (verify PR)** — Swift helper exits with code 77 on permission denial; `internal/audio/system.go` maps this to `ErrPermissionDenied` with a System Settings pointer. `cmd/heimdall/doctor.go` also validates macOS ≥ 14.2.
 
 **Stage**: 1 (Capture)
 **Severity**: Critical
@@ -109,6 +115,8 @@ Core Audio Taps does support process-specific filtering via PID include/exclude 
 
 ### V-005: Network Disruption During Streaming -- Transcript Gap
 
+**Implemented (verify PR)** — exponential-backoff reconnect in `internal/transcriber/deepgram.go` (`defaultMaxBackoff`, `defaultMaxReconnectFailures`); 30 s ring buffer in `internal/mixer/ring_buffer.go` preserves audio across gaps.
+
 **Stage**: 3 (Transcribe)
 **Severity**: High
 **Likelihood**: Occasional (Wi-Fi hiccups, VPN reconnection, ISP blips)
@@ -131,6 +139,8 @@ The ring buffer provides some backpressure protection, but if the buffer is size
 ---
 
 ### V-006: SIGKILL / Force Quit -- Meeting Data Loss
+
+**Implemented (verify PR)** — atomic recovery writes every 30 s in `internal/recovery/recovery.go`; `heimdall recover` command replays from `~/.heimdall/recovery/` into Obsidian.
 
 **Stage**: 4 (Accumulate)
 **Severity**: High
@@ -193,6 +203,8 @@ For meetings where the user uses Bluetooth headphones: system audio is delayed (
 ---
 
 ### V-009: Claude API Failure After Meeting Ends
+
+**Implemented (verify PR)** — Claude retry with exponential backoff in `internal/analyzer/claude.go`; on final failure, `internal/session/session.go` writes the raw transcript via the Obsidian renderer so the meeting is never lost.
 
 **Stage**: 5 (Analyze)
 **Severity**: High
@@ -304,6 +316,8 @@ The risk is higher when the transcript is noisy (background audio, poor diarizat
 ---
 
 ### V-014: Prompt Injection From Meeting Content
+
+**Implemented (PR #6)** — `internal/analyzer/prompts.go` fences the transcript, sanitizes `--participants` / `--keywords` via `sanitizePromptInput` (strips newlines and angle brackets, rune-truncates); covered by `prompts_test.go` (19 cases). See also `tasks/archived/security-review-report.md` H-001.
 
 **Stage**: 5 (Analyze)
 **Severity**: Medium

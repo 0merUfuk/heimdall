@@ -1022,6 +1022,78 @@ func TestConnectURLParameters(t *testing.T) {
 	}
 }
 
+func TestDeepgram_ConnectURL_IncludesKeywords(t *testing.T) {
+	var receivedURL string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedURL = r.URL.String()
+
+		upgrader := websocket.Upgrader{
+			CheckOrigin: func(r *http.Request) bool { return true },
+		}
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		echoServer(conn)
+	}))
+	defer server.Close()
+
+	dt := testTranscriber(wsURL(server))
+
+	opts := testOpts()
+	opts.Keywords = []string{"foo", "bar"}
+
+	if err := dt.Connect(context.Background(), opts); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
+	defer dt.Close()
+
+	// url.Values.Encode() URL-encodes the comma separator as %2C.
+	// Accept either the raw or URL-encoded forms so the test is resilient
+	// to encoding choices across Go versions.
+	wantRaw := "keywords=foo,bar"
+	wantEncoded := "keywords=foo%2Cbar"
+
+	if !strings.Contains(receivedURL, wantRaw) && !strings.Contains(receivedURL, wantEncoded) {
+		t.Errorf("URL missing keywords parameter; want %q or %q, got %s", wantRaw, wantEncoded, receivedURL)
+	}
+}
+
+func TestDeepgram_ConnectURL_OmitsEmptyKeywords(t *testing.T) {
+	var receivedURL string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedURL = r.URL.String()
+
+		upgrader := websocket.Upgrader{
+			CheckOrigin: func(r *http.Request) bool { return true },
+		}
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		echoServer(conn)
+	}))
+	defer server.Close()
+
+	dt := testTranscriber(wsURL(server))
+
+	opts := testOpts()
+	opts.Keywords = nil // explicitly nil
+
+	if err := dt.Connect(context.Background(), opts); err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
+	defer dt.Close()
+
+	if strings.Contains(receivedURL, "keywords=") {
+		t.Errorf("URL should NOT contain keywords= when Keywords is nil; got %s", receivedURL)
+	}
+}
+
 func TestConnectAuthHeader(t *testing.T) {
 	var receivedAuth string
 

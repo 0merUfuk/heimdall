@@ -1,6 +1,6 @@
-**Version**: 1.1
+**Version**: 1.2
 **Created**: 2026-03-28
-**Last Updated**: 2026-03-28
+**Last Updated**: 2026-04-18
 **Authors:** Omer Ufuk
 
 ---
@@ -25,13 +25,14 @@ Heimdall is a CLI meeting companion: captures audio, transcribes with speaker di
 ## Before Working Here
 
 1. Read `docs/MASTER_PLAN.md` — **19-subtask execution plan with dependencies and acceptance criteria**
-2. Read `docs/architecture/PIPELINE.md` — 6-stage pipeline architecture
-3. Read `docs/architecture/DECISIONS.md` — all architectural decisions (AD-001 to AD-010)
-4. Read `docs/architecture/MVP.md` — v1.0 specification, commands, config, templates
-5. Read `docs/architecture/ASSESSMENT.md` — 28 known vulnerabilities and mitigations
-6. Read `docs/architecture/ROADMAP.md` — phased roadmap from spike to v4.0
-7. Read `.claude/SERVICE_CONTEXT.md` — current implementation state
-8. Read `.claude/NEXT_STEPS.md` — prioritized work items
+2. Read `docs/STRATEGY_V2.md` — current strategy and roadmap pointer (supersedes `docs/architecture/STRATEGY.md`)
+3. Read `docs/architecture/PIPELINE.md` — 6-stage pipeline architecture
+4. Read `docs/architecture/DECISIONS.md` — all architectural decisions (AD-001 to AD-010)
+5. Read `docs/architecture/MVP.md` — v1.0 specification, commands, config, templates
+6. Read `docs/architecture/ASSESSMENT.md` — 28 known vulnerabilities and mitigations
+7. Read `docs/architecture/ROADMAP.md` — phased roadmap from spike to v4.0
+8. Read `.claude/SERVICE_CONTEXT.md` — current implementation state
+9. Read `.claude/NEXT_STEPS.md` — prioritized work items
 
 ---
 
@@ -182,7 +183,7 @@ type Analyzer interface {
 
 ## Execution Plan
 
-The master execution plan lives at `docs/MASTER_PLAN.md`. It contains 19 subtasks across 5 phases with a dependency graph. The manager agent reads this file at session start and continues from the first unchecked item.
+The master execution plan lives at `docs/MASTER_PLAN.md`. It contains 19 subtasks across 6 phases (Phase 0 + 1A/1B/1C/1D/1E) with a dependency graph. The manager agent reads this file at session start and continues from the first unchecked item.
 
 **Phase summary:**
 - **Phase 0**: Foundation + Spike (types, interfaces, mic capture, Swift helper, mixer, Deepgram, end-to-end)

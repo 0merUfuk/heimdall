@@ -169,7 +169,7 @@ func runRecord(cmd *cobra.Command, args []string) error {
 	dgTranscriber := transcriber.NewDeepgramTranscriber(apiKey)
 
 	// Create the session orchestrator (wires stages 1-4).
-	sess := session.NewMeetingSession(recordTitle, systemSource, micSource, dgTranscriber, recordLanguage)
+	sess := session.NewMeetingSession(recordTitle, systemSource, micSource, dgTranscriber, recordLanguage, keywords)
 
 	// V-006: Create crash recovery writer (writes segments to disk every 30s).
 	recWriter, err := recovery.NewRecoveryWriter(recordTitle, time.Now(), recordLanguage)
