@@ -277,7 +277,7 @@ Meeting note saved: ~/Vault/meetings/2026-03-31/recovery-test.md
 ./bin/heimdall config get obsidian.vault_path
 
 # Set a value
-./bin/heimdall config set claude.model claude-sonnet-4-5
+./bin/heimdall config set claude.model claude-sonnet-4-6
 
 # List meetings
 ./bin/heimdall list
