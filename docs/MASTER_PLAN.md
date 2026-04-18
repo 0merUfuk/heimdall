@@ -1,8 +1,8 @@
 # Heimdall — Master Execution Plan
 
-**Version**: 1.0
+**Version**: 1.1
 **Created**: 2026-03-28
-**Last Updated**: 2026-03-28
+**Last Updated**: 2026-04-18
 **Authors:** Omer Ufuk
 
 ---
@@ -73,8 +73,8 @@ Tasks:
 Tasks:
 - [ ] Run oracle research for Go audio processing (malgo, PortAudio, audio formats)
 - [ ] Run oracle research for WebSocket streaming patterns in Go (gorilla/websocket, nhooyr/websocket)
-- [ ] Run oracle research for Deepgram Go SDK (streaming, diarization, multichannel)
-- [ ] Run oracle research for Anthropic Go SDK (structured output, streaming)
+- [ ] Run oracle research for Deepgram streaming WebSocket protocol (JSON frames, diarization, KeepAlive)
+- [ ] Run oracle research for Anthropic Messages API over raw HTTP (structured output via tool_use, retries)
 - [ ] Run oracle research for cobra CLI patterns (long-running commands, graceful shutdown)
 - [ ] Inject knowledge docs to `.claude/knowledge/`
 
@@ -241,12 +241,11 @@ Files to create:
 - [ ] `internal/transcriber/deepgram_test.go` — unit tests (mock WebSocket)
 
 Implementation:
-- Use `github.com/deepgram/deepgram-go-sdk` (official SDK)
-- WebSocket streaming connection with parameters:
+- Use `github.com/gorilla/websocket` directly (the Deepgram Go SDK was evaluated and declined in favor of hand-rolled WebSocket handling — simpler lifecycle, no extra abstraction layer, easier to unit-test with `httptest` + mock WebSocket)
+- WebSocket streaming connection with parameters (see `internal/transcriber/deepgram.go` for the production URL builder):
   - `model=nova-3`
   - `diarize=true`
-  - `multichannel=true`
-  - `channels=2`
+  - `channels=1` — mono input (see ID-001; the mixer produces stereo internally but `session.go` downmixes before transmission)
   - `sample_rate=16000`
   - `encoding=linear16`
   - `language=en`
@@ -319,7 +318,7 @@ Implementation:
 
 Files to create:
 - [ ] `internal/config/config.go` — Config struct, load/save, validation
-- [ ] `internal/config/wizard.go` — Interactive first-run wizard (charmbracelet/huh)
+- [ ] First-run wizard implemented inline in `cmd/heimdall/config.go` as a simple text-based interactive prompt (plain `fmt.Print` + `fmt.Scan`/`bufio.Scanner` — no TUI library; keeps the dependency surface minimal)
 - [ ] `internal/config/defaults.go` — Default values
 - [ ] `cmd/heimdall/config.go` — `heimdall config init`, `config get`, `config set` commands
 
@@ -343,8 +342,7 @@ Implementation:
 **Depends on**: 1A.1
 
 Files to create:
-- [ ] `cmd/heimdall/doctor.go` — `heimdall doctor` command
-- [ ] `internal/doctor/doctor.go` — Diagnostic checks
+- [x] `cmd/heimdall/doctor.go` — `heimdall doctor` command with inline diagnostic checks (no `internal/doctor/` package — the command is simple enough to live entirely in the cobra command file)
 
 Implementation (addresses V-003, V-019, V-020):
 - [ ] Check macOS version >= 14.2 (V-019)
@@ -395,7 +393,7 @@ Files to create:
 - [ ] `internal/analyzer/prompts.go` — System prompts and structured output schema
 
 Implementation:
-- Use `github.com/anthropics/anthropic-sdk-go` (official SDK)
+- Use `net/http` directly against the Anthropic Messages API at `https://api.anthropic.com/v1/messages` (the official Anthropic Go SDK was evaluated and declined in favor of hand-rolled HTTP — zero extra dependency surface, explicit control over retries/timeouts/structured output, trivial to mock with `httptest.NewServer`). See `internal/analyzer/claude.go` for the production implementation.
 - Default model: `claude-haiku-4-5` (configurable to `claude-sonnet-4-6`)
 - Structured output via tool_use or JSON mode:
   ```json
@@ -467,8 +465,7 @@ Implementation:
 Files to create:
 - [ ] `internal/recovery/recovery.go` — Periodic temp file writer + recovery reader
 - [ ] `internal/recovery/recovery_test.go` — unit tests
-- [ ] `cmd/heimdall/recover.go` — `heimdall recover` command
-- [ ] `cmd/heimdall/analyze.go` — `heimdall analyze` standalone command
+- [x] `cmd/heimdall/recover.go` — both `heimdall recover` and `heimdall analyze` live here; each is its own `cobra.Command` registered independently on `rootCmd` (no separate `analyze.go` file was created — the commands are small enough to share a source file while remaining distinct top-level subcommands)
 
 Implementation (V-006):
 - During recording: every 30 seconds, atomically write current state to `~/.heimdall/recovery/`
