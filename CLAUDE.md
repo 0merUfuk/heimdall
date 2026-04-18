@@ -46,7 +46,7 @@ heimdall/
 │   ├── audio/                 # AudioSource interface + MicrophoneSource + SystemAudioSource
 │   ├── transcriber/           # Transcriber interface + DeepgramTranscriber (WebSocket)
 │   ├── analyzer/              # Analyzer interface + ClaudeAnalyzer (Anthropic API)
-│   ├── mixer/                 # Resample 48->16kHz, stereo interleave (L=system, R=mic)
+│   ├── mixer/                 # Resample 48->16kHz, stereo interleave (L=system, R=mic) — downmixed to mono in session.go (ID-001)
 │   ├── output/                # Writer interface + ObsidianWriter (Go templates)
 │   ├── config/                # Config loading, validation, env var resolution
 │   ├── recovery/              # Crash recovery (atomic temp files every 30s)
@@ -107,7 +107,7 @@ type Analyzer interface {
 ```
 1. CAPTURE    → Core Audio Taps (Swift) + malgo mic (Go)        [No LLM]
 2. MIX        → Resample, convert, interleave stereo             [No LLM]
-3. TRANSCRIBE → Deepgram Nova-3 WebSocket + diarization          [No LLM]
+3. TRANSCRIBE → Deepgram Nova-3 WebSocket (mono + diarize, ID-001) [No LLM]
 4. ACCUMULATE → In-memory segments + terminal display             [No LLM]
 5. ANALYZE    → Claude API (post-meeting) — the ONLY LLM stage  [LLM]
 6. RENDER     → Go templates → Obsidian vault markdown           [No LLM]

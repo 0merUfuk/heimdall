@@ -75,6 +75,7 @@ heimdall record --title "Meeting" --keywords "Kubernetes,gRPC"
 | `--participants` | Comma-separated participant names (hints for speaker ID) |
 | `--language` | Transcription language code (default: `en`, use `multi` for auto-detect) |
 | `--keywords` | Comma-separated context keywords |
+| `--profile` | Use a named meeting profile from config (loads title, language, participants, keywords); explicit flags override profile values |
 
 ### `heimdall doctor`
 
@@ -153,7 +154,7 @@ heimdall uses a 6-stage pipeline. The LLM appears in exactly one stage (Stage 5)
 ```
 Stage 1: CAPTURE     System audio (Swift/Core Audio Taps) + microphone (Go/malgo)
 Stage 2: MIX         Resample 48kHz->16kHz, interleave stereo (L=system, R=mic)
-Stage 3: TRANSCRIBE  Deepgram Nova-3 WebSocket, diarization, multichannel
+Stage 3: TRANSCRIBE  Deepgram Nova-3 WebSocket (mono + diarize) -- identifies N speakers by voice fingerprinting
 Stage 4: ACCUMULATE  In-memory segments + live terminal display
 Stage 5: ANALYZE     Claude API (post-meeting) -- summary, decisions, action items
 Stage 6: RENDER      Go templates -> Obsidian-native markdown
@@ -181,7 +182,7 @@ Process killed   -> Recovery file written every 30s, recoverable
 
 ## Cost Per Meeting
 
-heimdall sends stereo audio (2 channels). Deepgram bills multichannel at 2x the mono rate.
+heimdall sends mono audio with Deepgram diarization (ID-001). The cost table below uses stereo rates as a conservative ceiling; actual billing is roughly 50% lower at the mono rate.
 
 | Duration | Deepgram (stereo + diarization) | Claude Haiku (summary) | Total |
 |----------|--------------------------------|------------------------|-------|

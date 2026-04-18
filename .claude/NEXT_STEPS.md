@@ -1,20 +1,20 @@
 **Version**: 3.0
 **Created**: 2026-03-28
-**Last Updated**: 2026-03-31
+**Last Updated**: 2026-04-18
 **Authors:** Omer Ufuk
 
 ---
 
 # Heimdall -- Next Steps
 
-> Original execution plan: `docs/MASTER_PLAN.md` (19/19 complete)
+> Original execution plan: `docs/MASTER_PLAN.md` (18/19 complete)
 > New strategic plan: `docs/STRATEGY_V2.md` (post-grill)
 
 ---
 
-## v1.0 — COMPLETE
+## v1.0 — FEATURE-COMPLETE (18/19 subtasks)
 
-All 19 MASTER_PLAN subtasks executed. Security review passed (PR #6). Final review passed (PR #7). 31-bug sweep merged (PR #8).
+All 18 completed MASTER_PLAN subtasks executed. Security review passed (PR #6). Final review passed (PR #7). Bug sweep merged (PR #8). Subsequent refinements: docs refresh (PR #9), config validation (PR #10), mono+diarize switch (PR #11, see ID-001), guardrails (PR #12), meeting profiles + config UX (PR #14).
 
 ## Immediate (this week)
 
