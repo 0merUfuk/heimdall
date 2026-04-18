@@ -208,7 +208,7 @@ func TestIntegration_FullPipeline(t *testing.T) {
 	// Transcriber emits a segment every 5 received frames.
 	tr := newSegmentProducingTranscriber(5)
 
-	sess := NewMeetingSession("Integration Test", sys, mic, tr, "en")
+	sess := NewMeetingSession("Integration Test", sys, mic, tr, "en", nil)
 
 	var segments []heimdall.Segment
 	var segMu sync.Mutex
@@ -275,7 +275,7 @@ func TestIntegration_GracefulShutdown(t *testing.T) {
 	mic := newMockAudioSourceWithData(16000, 1)
 	tr := newSegmentProducingTranscriber(3)
 
-	sess := NewMeetingSession("Shutdown Test", sys, mic, tr, "en")
+	sess := NewMeetingSession("Shutdown Test", sys, mic, tr, "en", nil)
 
 	var callbackSegments []heimdall.Segment
 	var callbackMu sync.Mutex
@@ -324,7 +324,7 @@ func TestIntegration_MicOnlyMode(t *testing.T) {
 	tr := newSegmentProducingTranscriber(5)
 
 	// Pass nil for system audio.
-	sess := NewMeetingSession("Mic Only Test", nil, mic, tr, "en")
+	sess := NewMeetingSession("Mic Only Test", nil, mic, tr, "en", nil)
 
 	var segments []heimdall.Segment
 	var segMu sync.Mutex
@@ -375,7 +375,7 @@ func TestIntegration_SegmentCallbackCalledForEach(t *testing.T) {
 	mic := newMockAudioSourceWithData(16000, 1)
 	tr := newMockTranscriber()
 
-	sess := NewMeetingSession("Callback Test", nil, mic, tr, "en")
+	sess := NewMeetingSession("Callback Test", nil, mic, tr, "en", nil)
 
 	var received []heimdall.Segment
 	var receivedMu sync.Mutex
@@ -431,7 +431,7 @@ func TestIntegration_DurationPositiveAfterStart(t *testing.T) {
 	mic := newMockAudioSourceWithData(16000, 1)
 	tr := newMockTranscriber()
 
-	sess := NewMeetingSession("Duration Test", nil, mic, tr, "en")
+	sess := NewMeetingSession("Duration Test", nil, mic, tr, "en", nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -466,7 +466,7 @@ func TestIntegration_SpeakerCountTracking(t *testing.T) {
 	mic := newMockAudioSourceWithData(16000, 1)
 	tr := newMockTranscriber()
 
-	sess := NewMeetingSession("Speaker Count Test", nil, mic, tr, "en")
+	sess := NewMeetingSession("Speaker Count Test", nil, mic, tr, "en", nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
