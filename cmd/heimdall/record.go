@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -11,10 +12,12 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/0merUfuk/heimdall/internal/analyzer"
 	"github.com/0merUfuk/heimdall/internal/audio"
 	"github.com/0merUfuk/heimdall/internal/config"
+	"github.com/0merUfuk/heimdall/internal/consent"
 	"github.com/0merUfuk/heimdall/internal/heimdall"
 	"github.com/0merUfuk/heimdall/internal/output"
 	"github.com/0merUfuk/heimdall/internal/recovery"
@@ -23,11 +26,12 @@ import (
 )
 
 var (
-	recordTitle        string
-	recordLanguage     string
-	recordParticipants string
-	recordKeywords     string
-	recordProfile      string
+	recordTitle               string
+	recordLanguage            string
+	recordParticipants        string
+	recordKeywords            string
+	recordProfile             string
+	recordConsentAcknowledged bool
 )
 
 var recordCmd = &cobra.Command{
@@ -53,6 +57,8 @@ func init() {
 	recordCmd.Flags().StringVar(&recordParticipants, "participants", "", "comma-separated list of participant names (hints for speaker identification)")
 	recordCmd.Flags().StringVar(&recordKeywords, "keywords", "", "comma-separated list of context keywords for analysis")
 	recordCmd.Flags().StringVar(&recordProfile, "profile", "", "meeting profile name (from config)")
+	recordCmd.Flags().BoolVar(&recordConsentAcknowledged, "consent-acknowledged", false,
+		"acknowledge the recording-consent banner non-interactively (for scripts/CI; does not persist to config)")
 	rootCmd.AddCommand(recordCmd)
 }
 
@@ -76,6 +82,27 @@ func runRecord(cmd *cobra.Command, args []string) error {
 		log.Printf("warning: config file is malformed: %v", err)
 		fmt.Printf("Fix by editing %s or resetting with: heimdall config init\n", config.ConfigPath())
 	}
+
+	// First-run consent gate (audit §6 item 4, AD-011 Option A). Runs before
+	// any audio source is opened or any API call is made so that a refusal
+	// never leaves hardware resources or network connections half-initialised.
+	// The gate uses the UNRESOLVED cfg so the Consent.Acknowledged bool read
+	// reflects the raw config bytes, not an env-expanded clone.
+	if err := consent.Gate(ctx, consent.Options{
+		FlagAcknowledged: recordConsentAcknowledged,
+		ConfigPath:       config.ConfigPath(),
+		Cfg:              cfg,
+		PromptReader:     os.Stdin,
+		PromptWriter:     os.Stderr,
+		IsTerminalFn:     func() bool { return term.IsTerminal(int(os.Stdin.Fd())) },
+	}); err != nil {
+		if errors.Is(err, context.Canceled) {
+			fmt.Fprintln(os.Stderr, "\nConsent cancelled. No recording started.")
+			return nil
+		}
+		return err
+	}
+
 	if cfg != nil {
 		if err := cfg.ResolveEnvVars(); err != nil {
 			log.Printf("warning: resolving config env vars: %v", err)

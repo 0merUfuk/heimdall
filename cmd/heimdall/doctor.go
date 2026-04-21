@@ -13,6 +13,51 @@ import (
 	"github.com/0merUfuk/heimdall/internal/config"
 )
 
+// screenRecordingRunner is the hook used by the Screen Recording permission
+// check to invoke `heimdall-audio --check-permissions`. Tests replace this
+// with a stub so we can assert doctor's output for both granted and denied
+// cases without shelling out to the real Swift binary.
+//
+// The runner returns (stdout, exitCode, err). An err from exec.Run() that is
+// *not* an ExitError (e.g., binary not found) is returned verbatim; ExitError
+// is decoded into exitCode so the caller can distinguish "denied" (exit 77)
+// from "binary not found" (err != nil).
+var screenRecordingRunner = defaultScreenRecordingRunner
+
+func defaultScreenRecordingRunner() (stdout string, exitCode int, err error) {
+	helperPath, err := locateAudioHelper()
+	if err != nil {
+		return "", 0, err
+	}
+	cmd := exec.Command(helperPath, "--check-permissions")
+	out, runErr := cmd.Output()
+	if runErr != nil {
+		if ee, ok := runErr.(*exec.ExitError); ok {
+			return string(out), ee.ExitCode(), nil
+		}
+		return string(out), 0, runErr
+	}
+	return string(out), 0, nil
+}
+
+// locateAudioHelper returns the path to the heimdall-audio binary, preferring
+// PATH and falling back to a sibling of the running heimdall binary. Mirrors
+// the lookup order used by the "heimdall-audio helper found in PATH" check.
+func locateAudioHelper() (string, error) {
+	if p, err := exec.LookPath("heimdall-audio"); err == nil {
+		return p, nil
+	}
+	exePath, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("heimdall-audio not found: %w", err)
+	}
+	sibling := filepath.Join(filepath.Dir(exePath), "heimdall-audio")
+	if _, err := os.Stat(sibling); err == nil {
+		return sibling, nil
+	}
+	return "", fmt.Errorf("heimdall-audio not found in PATH or next to heimdall")
+}
+
 var doctorCmd = &cobra.Command{
 	Use:   "doctor",
 	Short: "Check prerequisites for recording",
@@ -76,9 +121,11 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 
 	// Check heimdall-audio binary.
 	total++
+	helperFound := false
 	if _, err := exec.LookPath("heimdall-audio"); err == nil {
 		fmt.Printf("  [pass] heimdall-audio helper found in PATH\n")
 		passed++
+		helperFound = true
 	} else {
 		// Check next to the heimdall binary.
 		exePath, _ := os.Executable()
@@ -87,6 +134,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 			if _, err := os.Stat(filepath.Join(dir, "heimdall-audio")); err == nil {
 				fmt.Printf("  [pass] heimdall-audio helper found\n")
 				passed++
+				helperFound = true
 			} else {
 				fmt.Printf("  [FAIL] heimdall-audio not found -- system audio capture unavailable\n")
 			}
@@ -94,6 +142,12 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 			fmt.Printf("  [FAIL] heimdall-audio not found\n")
 		}
 	}
+
+	// Check Screen Recording permission (audit §6 item 9). On non-macOS hosts
+	// this check is a no-op — Core Audio Taps is macOS-only, so the earlier
+	// macOS-version [FAIL] already captured the platform mismatch.
+	total++
+	passed += runScreenRecordingCheck(helperFound)
 
 	// Check Obsidian vault.
 	total++
@@ -123,4 +177,51 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 
 	fmt.Println(" Fix the issues above before recording.")
 	return fmt.Errorf("%d/%d checks failed", total-passed, total)
+}
+
+// runScreenRecordingCheck prints the Screen Recording permission check line
+// and returns 1 if the check passes (granted, or skipped on non-macOS), 0 if
+// it fails. The caller adds the return value to the cumulative pass count.
+//
+// Behaviour matrix:
+//
+//	GOOS != darwin              -> [skip], counts as pass (macOS-only feature)
+//	helperFound == false        -> [skip], counts as pass (the earlier
+//	                               "heimdall-audio not found" FAIL already
+//	                               signalled the root cause; re-reporting it
+//	                               as a second failure is noise)
+//	runner returns err != nil   -> [FAIL], counts as fail
+//	stdout contains "granted"   -> [pass], counts as pass
+//	otherwise (denied/unknown)  -> [FAIL] with actionable guidance
+func runScreenRecordingCheck(helperFound bool) int {
+	if runtime.GOOS != "darwin" {
+		fmt.Println("  [skip] Screen Recording permission (macOS-only)")
+		return 1
+	}
+	if !helperFound {
+		fmt.Println("  [skip] Screen Recording permission (heimdall-audio not available)")
+		return 1
+	}
+
+	stdout, exitCode, err := screenRecordingRunner()
+	if err != nil {
+		fmt.Printf("  [FAIL] Screen Recording permission check: %v\n", err)
+		return 0
+	}
+
+	// The subprocess prints a single deterministic line; prefer string
+	// matching over exit-code matching because the line is what the user
+	// sees if they run the helper themselves.
+	stdout = strings.TrimSpace(stdout)
+	if strings.Contains(stdout, "granted") {
+		fmt.Println("  [pass] Screen Recording permission granted")
+		return 1
+	}
+
+	// Denied (exit 77) or unexpected. Either way, surface actionable guidance.
+	fmt.Println("  [FAIL] Screen Recording permission denied")
+	fmt.Println("         Grant in System Settings -> Privacy & Security -> Screen Recording")
+	fmt.Println("         -> enable 'heimdall-audio', then re-run 'heimdall doctor'")
+	_ = exitCode // exit code reserved for future telemetry; string match is authoritative
+	return 0
 }

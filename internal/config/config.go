@@ -17,6 +17,7 @@ type Config struct {
 	Obsidian ObsidianConfig     `yaml:"obsidian"`
 	Audio    AudioConfig        `yaml:"audio"`
 	Output   OutputConfig       `yaml:"output"`
+	Consent  ConsentConfig      `yaml:"consent,omitempty"`
 	Keywords []string           `yaml:"keywords,omitempty"`
 	Profiles map[string]Profile `yaml:"profiles,omitempty"`
 }
@@ -54,6 +55,15 @@ type OutputConfig struct {
 	IncludeTranscript bool   `yaml:"include_transcript"`
 	IncludeTimestamps bool   `yaml:"include_timestamps"`
 	Language          string `yaml:"language"`
+}
+
+// ConsentConfig holds the user's one-time recording-consent acknowledgement.
+// Populated when the user presses Enter at the first-run consent banner.
+// Both fields are zero-valued until acknowledgement; the banner is gated on
+// Acknowledged == false.
+type ConsentConfig struct {
+	Acknowledged   bool   `yaml:"acknowledged,omitempty"`
+	AcknowledgedAt string `yaml:"acknowledged_at,omitempty"`
 }
 
 // Profile holds per-meeting-type defaults that can be activated with --profile.
@@ -101,10 +111,10 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
-// Save writes the config to the given path as YAML. It creates parent
-// directories if they do not exist. The directory is created with 0700 and
-// the file is written with 0600 permissions (owner-only) because config
-// may contain API key references.
+// Save writes the config to the given path as YAML atomically (temp file +
+// rename per V-006). It creates parent directories if they do not exist. The
+// directory is created with 0700 and the file is written with 0600
+// permissions (owner-only) because config may contain API key references.
 func (c *Config) Save(path string) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0700); err != nil {
@@ -116,8 +126,32 @@ func (c *Config) Save(path string) error {
 		return fmt.Errorf("marshaling config: %w", err)
 	}
 
-	if err := os.WriteFile(path, data, 0600); err != nil {
-		return fmt.Errorf("writing config file: %w", err)
+	// Atomic write: temp file in the same directory, then rename. This
+	// prevents a partial write from clobbering the existing config if the
+	// process crashes or the disk fills mid-write.
+	tmp, err := os.CreateTemp(dir, ".config-*.yaml.tmp")
+	if err != nil {
+		return fmt.Errorf("creating temp config file: %w", err)
+	}
+	tmpPath := tmp.Name()
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("writing temp config file: %w", err)
+	}
+	if err := tmp.Chmod(0600); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("setting config file permissions: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("closing temp config file: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("renaming temp config file: %w", err)
 	}
 
 	return nil

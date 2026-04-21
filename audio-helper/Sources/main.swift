@@ -10,6 +10,15 @@
 //   exit 0  -> clean exit
 //   exit 1  -> fatal error (macOS too old, no audio device, etc.)
 //   exit 77 -> Screen Recording permission denied
+//
+// Subcommands:
+//   --check-permissions  Preflight the Screen Recording permission (no
+//                        system prompt, no capture). Prints a single line
+//                        to stdout: "screen-recording-permission: granted"
+//                        or "screen-recording-permission: denied". Exits 0
+//                        when granted, 77 when denied. Used by
+//                        `heimdall doctor` to surface the permission state
+//                        without triggering the macOS consent dialog.
 
 import AVFAudio
 import CoreAudio
@@ -290,7 +299,40 @@ private func runAudioCapture() -> Int32 {
     return ExitCode.success.rawValue
 }
 
+// MARK: - Permission Preflight Subcommand
+
+/// Handle `--check-permissions`: report Screen Recording permission state
+/// without triggering the system prompt. Prints a single machine-parseable
+/// line to stdout so the Go side (`heimdall doctor`) can key off either the
+/// exit code or the string.
+///
+/// Uses CGPreflightScreenCaptureAccess() only. Calling
+/// CGRequestScreenCaptureAccess() here would surface the macOS consent
+/// dialog, which `doctor` must not do without explicit user action.
+private func runPermissionCheck() -> Int32 {
+    let granted = CGPreflightScreenCaptureAccess()
+    var line = granted
+        ? "screen-recording-permission: granted\n"
+        : "screen-recording-permission: denied\n"
+    line.withUTF8 { buffer in
+        _ = fwrite(buffer.baseAddress, 1, buffer.count, stdout)
+        fflush(stdout)
+    }
+    return granted ? ExitCode.success.rawValue : ExitCode.permissionDenied.rawValue
+}
+
 // MARK: - Entry Point
+
+// --- Early subcommand dispatch (no audio engine, no macOS 14.2 guard) ---
+// CommandLine.arguments[0] is the binary path; real args start at index 1.
+if CommandLine.arguments.count >= 2 {
+    switch CommandLine.arguments[1] {
+    case "--check-permissions":
+        exit(runPermissionCheck())
+    default:
+        break
+    }
+}
 
 // --- macOS version check (runtime, covers pre-14.0 as well) ---
 let osVersion = ProcessInfo.processInfo.operatingSystemVersion
