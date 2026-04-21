@@ -28,6 +28,7 @@
 - Lock `mip_opt_out=true` invariant on the Deepgram WebSocket URL via test assertions so a regression cannot silently re-enable model-training retention (PR #21).
 
 ### Fixed
+- Race condition in `segmentProducingTranscriber` test mock that caused intermittent `send on closed channel` panics under `-race` (`internal/session/session_integration_test.go`).
 - Config validation -- invalid YAML, missing required fields, and bad type coercion now fail fast with specific line/field errors rather than silent defaults (PR #10).
 
 ## v0.1.0-rc baseline (2026-03-31)
