@@ -645,8 +645,8 @@ func (s *SonioxTranscriber) tokensToSegment(tokens []sonioxToken, offset time.Du
 
 // emit sends a segment onto the output channel and advances timeOffset so
 // the post-reconnect accumulator starts after this segment's end. Never
-// blocks — consumer falling behind results in dropped segments, consistent
-// with audio-safety rules.
+// blocks — consumer falling behind results in dropped segments (logged),
+// consistent with audio-safety rules.
 func (s *SonioxTranscriber) emit(seg heimdall.Segment) {
 	// Advance timeOffset to this segment's end so any subsequent reconnect
 	// (whose token timestamps restart from zero) continues monotonically.
@@ -662,8 +662,17 @@ func (s *SonioxTranscriber) emit(seg heimdall.Segment) {
 	case s.segments <- seg:
 	case <-s.ctx.Done():
 	default:
-		// Channel full. Dropping is preferable to blocking the read goroutine
-		// per audio-safety.md.
+		// Channel full. Dropping is preferable to blocking the read
+		// goroutine per audio-safety.md, but transcript segments are
+		// user-visible data, so log the drop. (Deepgram's equivalent path
+		// currently also drops silently; tracked as a follow-up per the
+		// PR discussion.)
+		text := seg.Text
+		if len(text) > 40 {
+			text = text[:37] + "..."
+		}
+		log.Printf("[soniox] dropped segment (buffer full): speaker=%d start=%v text=%q",
+			seg.Speaker, seg.Start, text)
 	}
 }
 
