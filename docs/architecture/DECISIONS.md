@@ -1,8 +1,8 @@
 # Heimdall — Architectural Decision Records
 
-**Version**: 1.0
+**Version**: 1.1
 **Created**: 2026-03-28
-**Last Updated**: 2026-04-18
+**Last Updated**: 2026-04-21
 **Authors:** Omer Ufuk
 
 ---
@@ -21,6 +21,7 @@
 | AD-008 | LLM-based contextual speaker identification for MVP | Accepted | 2026-03-28 |
 | AD-009 | CLI-first, web dashboard deferred to post-v1.0 | Accepted | 2026-03-28 |
 | AD-010 | macOS 14.2+ minimum (Core Audio Taps requirement) | Accepted | 2026-03-28 |
+| AD-011 | Adopt Option A ("Ship-And-Hide") from 2026-04-16 strategic audit | Accepted | 2026-04-21 |
 
 ---
 
@@ -220,3 +221,23 @@ type Analyzer interface {
 - No kernel extensions or virtual audio drivers needed
 - By 2026, the vast majority of macOS users are on 14.2+
 - Clean, future-proof approach
+
+---
+
+## AD-011: Adopt Option A ("Ship-And-Hide") from 2026-04-16 Strategic Audit
+
+**Status**: Accepted
+**Date**: 2026-04-21 (ratified)
+
+**Context**: `tasks/strategic-audit-2026-04-16.md` §8 evaluated three strategic paths — **A: Ship-And-Hide**, **B: Local-First v2.0** (defer launch 12 weeks), **C: Commercialize as BYO+License Pro**. Phase 4 strategist synthesis + Phase 5 reviewer adversarial pass recommended Option A. A capacity audit on 2026-04-21 (4-week git cadence, ~7 working days, ~9.75 hr/wk average) confirmed the 8–15 hr/wk envelope that Option A assumes, while Option B's 96–180 hour budget would force sacrificing Talat's 1.0 window.
+
+**Decision**: Proceed with Option A — ship v0.1.0 publicly within 30 days with Soniox + the severity-ranked must-fix bugs + Homebrew, explicitly forgoing a launch campaign (no Tweet thread, no Show HN, no Product Hunt). One Obsidian Forum post at Day 90. Treat heimdall as personal infrastructure and portfolio piece, preserving optionality to commercialize (Option C) if the Day-60 trigger fires — validation experiment positive **and** Forum post yields >50 stars in 14 days.
+
+**Consequences**:
+- **Reversal cost: low.** Every artifact produced under Option A (Soniox adapter, Homebrew tap, Whisper adapter, local Ollama backend) also funds Options B and C if signal emerges later.
+- **Kill criteria**:
+  - (a) GitHub Issues accumulate >5 open bugs with no author response for >14 days → archive with a maintenance notice.
+  - (b) Soniox validation spike fails the Day-5 gate **and** `--keywords` fallback does not cover the minimum Turkish use case → pause, re-evaluate Option B vs archive.
+- **Budget discipline**: no sustained content calendar, no GTM hires, no paid ads, no Product Hunt coordination. These are Path A moves that Option A explicitly declines.
+
+**Relationship to other ADRs**: Does not supersede prior decisions. Complements AD-006 (MIT license, "revisit at distribution" — Option A confirms MIT for v0.1.0) and AD-009 (CLI-first, web dashboard deferred — Option A's 30/60/90 plan keeps that deferral intact). Independent of AD-010 (macOS 14.2+ minimum).
