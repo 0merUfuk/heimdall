@@ -39,12 +39,15 @@ var recordCmd = &cobra.Command{
 	Use:   "record",
 	Short: "Record a meeting with live transcription",
 	Long: `Start recording a meeting. Captures system audio and microphone,
-streams to Deepgram for real-time transcription with speaker diarization,
-and displays the live transcript in the terminal.
+streams to the configured transcriber (Deepgram by default, Soniox opt-in
+via --transcriber soniox) for real-time transcription with speaker
+diarization, and displays the live transcript in the terminal.
 
 Press Ctrl+C to stop recording.
 
-Requires DEEPGRAM_API_KEY environment variable.`,
+Requires the selected transcriber's API key:
+  - DEEPGRAM_API_KEY (default)
+  - SONIOX_API_KEY   (with --transcriber soniox)`,
 	Example: `  heimdall record                                 # auto-title, config defaults
   heimdall record --profile daily                  # use "daily" profile
   heimdall record --title "Sprint Planning"        # custom title
