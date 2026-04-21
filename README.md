@@ -76,6 +76,7 @@ heimdall record --title "Meeting" --keywords "Kubernetes,gRPC"
 | `--language` | Transcription language code (default: `en`, use `multi` for auto-detect) |
 | `--keywords` | Comma-separated context keywords |
 | `--profile` | Use a named meeting profile from config (loads title, language, participants, keywords); explicit flags override profile values |
+| `--consent-acknowledged` | Acknowledge the recording-consent banner non-interactively (scripts/CI; does not persist to config) |
 
 ### `heimdall doctor`
 

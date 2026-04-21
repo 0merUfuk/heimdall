@@ -41,7 +41,7 @@ heimdall is in v0.x. While on the 0.x line, **only the latest minor release** re
 
 ## Known sensitive surfaces
 
-- **API keys** (`~/Library/Application Support/heimdall/config.yaml`) — owner's responsibility; mode `0600` recommended. `config set` and `config get` mask values by default (see [`.claude/KNOWN_ISSUES.md`](.claude/KNOWN_ISSUES.md) SEC-01, SEC-02).
+- **API keys** (`~/.heimdall/config.yaml`) — owner's responsibility; mode `0600` recommended. `config set` and `config get` mask values by default (see [`.claude/KNOWN_ISSUES.md`](.claude/KNOWN_ISSUES.md) SEC-01, SEC-02).
 - **Crash-recovery files** (`~/.heimdall/recovery/*.json`) — contain partial transcripts; written mode `0600`, deleted on clean shutdown. See V-006 in [`docs/architecture/ASSESSMENT.md`](docs/architecture/ASSESSMENT.md).
 - **Temporary audio buffers** — the ring buffer is memory-only; frames are not persisted to disk.
 - **Swift subprocess stdout** — carries raw PCM; not logged. If you pipe heimdall's stderr to a shared location, be aware that error messages may include config paths.
