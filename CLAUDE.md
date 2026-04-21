@@ -1,6 +1,6 @@
 **Version**: 1.2
 **Created**: 2026-03-28
-**Last Updated**: 2026-04-18
+**Last Updated**: 2026-04-22
 **Authors:** Omer Ufuk
 
 ---
@@ -55,7 +55,7 @@ heimdall/
 ├── templates/                 # Go embed templates for Obsidian output
 ├── docs/
 │   └── architecture/          # All design docs (7 files, 2900+ lines)
-├── .claude/                   # Agent ecosystem (10 agents, 16 skills, 4 rules)
+├── .claude/                   # Agent ecosystem (10 agents, 17 skills, 4 rules)
 ├── go.mod
 ├── Makefile
 └── CLAUDE.md
@@ -172,6 +172,7 @@ type Analyzer interface {
 | `/owasp-review` | Security review (OWASP + ASI) |
 | `/secret-scan` | Scan for leaked credentials |
 | `/security-scan` | Full security analysis |
+| `/sprint` | Workplan status reporting (ports the mythix-mobile pattern) |
 | `/strategy-weekly` | Weekly tactical brief (git activity, test health, priorities) |
 | `/strategy-monthly` | Monthly deep review (product + tech + growth leads in parallel) |
 | `/session-learn` | Capture session findings, evolve ecosystem |

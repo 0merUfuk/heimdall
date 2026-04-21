@@ -155,6 +155,13 @@ func (m *segmentProducingTranscriber) Send(frame heimdall.AudioFrame) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// Guard against races where Close() has already closed segCh.
+	// Sending on a closed channel would panic even though the mutex serializes
+	// access, because the mutex does not enforce ordering between Send/Close.
+	if m.closed {
+		return nil
+	}
+
 	if len(frame.Data) == 0 {
 		return nil
 	}
