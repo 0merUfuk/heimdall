@@ -124,12 +124,13 @@ type SonioxTranscriber struct {
 	baseURL  string
 	segments chan heimdall.Segment
 
-	mu      sync.Mutex // protects conn, connID, closed, timeOffset, reconnecting
+	mu      sync.Mutex // protects conn, connID, closed, segmentsClosed, timeOffset, reconnecting
 	writeMu sync.Mutex // serializes WebSocket writes (gorilla/websocket forbids concurrent writes)
 
-	conn   *websocket.Conn
-	connID uint64
-	closed bool
+	conn           *websocket.Conn
+	connID         uint64
+	closed         bool
+	segmentsClosed bool // guards close(s.segments) against double-close
 
 	// Network-drop reconnection state (V-005).
 	reconnecting bool
@@ -252,7 +253,9 @@ func (s *SonioxTranscriber) Receive() <-chan heimdall.Segment {
 // Close gracefully tears down the connection. It sends the Soniox
 // end-of-stream handshake (an empty binary frame), waits briefly for the
 // server's {"finished": true} reply, and then closes the WebSocket and the
-// segment channel. Calling Close more than once is safe.
+// segment channel. Calling Close more than once is safe. Also safe to call
+// after a server-initiated shutdown has already closed the segments channel
+// — the segmentsClosed flag prevents a double-close panic.
 func (s *SonioxTranscriber) Close() error {
 	s.mu.Lock()
 	if s.closed {
@@ -296,8 +299,9 @@ func (s *SonioxTranscriber) Close() error {
 	s.mu.Lock()
 	tail := s.flushAccumulatorLocked()
 	offset := s.timeOffset
+	alreadyClosed := s.segmentsClosed
 	s.mu.Unlock()
-	if tail != nil {
+	if tail != nil && !alreadyClosed {
 		seg := s.tokensToSegment(tail, offset)
 		if seg.Text != "" {
 			select {
@@ -307,8 +311,51 @@ func (s *SonioxTranscriber) Close() error {
 		}
 	}
 
-	close(s.segments)
+	s.closeSegmentsOnce()
 	return nil
+}
+
+// closeSegmentsOnce closes the segments channel exactly once. Both Close()
+// and shutdownFromServer() call this; the segmentsClosed flag guards
+// against a double-close panic.
+func (s *SonioxTranscriber) closeSegmentsOnce() {
+	s.mu.Lock()
+	if s.segmentsClosed {
+		s.mu.Unlock()
+		return
+	}
+	s.segmentsClosed = true
+	s.mu.Unlock()
+	close(s.segments)
+}
+
+// shutdownFromServer tears down the session in response to a
+// server-initiated finished:true frame (e.g. rate limiting, inactivity
+// timeout). Mirrors the Close() tail: cancels the context, closes the
+// WebSocket, closes the segments channel. Unlike Close(), it does NOT send
+// an empty frame (the server is already done) and does NOT wait for
+// closeStreamDone (the readLoop that called it is already returning).
+func (s *SonioxTranscriber) shutdownFromServer() {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return
+	}
+	s.closed = true
+	s.mu.Unlock()
+
+	if s.cancel != nil {
+		s.cancel()
+	}
+
+	s.mu.Lock()
+	if s.conn != nil {
+		s.conn.Close()
+		s.conn = nil
+	}
+	s.mu.Unlock()
+
+	s.closeSegmentsOnce()
 }
 
 // writeMessage serializes WebSocket writes. gorilla/websocket does not
@@ -449,6 +496,7 @@ func (s *SonioxTranscriber) readLoop(conn *websocket.Conn, connID uint64) {
 			s.mu.Lock()
 			tail := s.flushAccumulatorLocked()
 			offset := s.timeOffset
+			wasClientInitiated := s.closed
 			s.mu.Unlock()
 			if tail != nil {
 				seg := s.tokensToSegment(tail, offset)
@@ -459,6 +507,13 @@ func (s *SonioxTranscriber) readLoop(conn *websocket.Conn, connID uint64) {
 			select {
 			case s.closeStreamDone <- struct{}{}:
 			default:
+			}
+			// Server-initiated finished:true (e.g. rate limiting, inactivity)
+			// arrives without Close() having been called. Shut the session
+			// down from this side so downstream Receive() consumers observe
+			// the channel closing rather than blocking indefinitely.
+			if !wasClientInitiated {
+				go s.shutdownFromServer()
 			}
 			return
 		}

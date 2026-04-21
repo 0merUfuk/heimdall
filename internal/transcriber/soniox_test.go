@@ -578,6 +578,51 @@ func TestSoniox_EndOfStreamEmptyFrame(t *testing.T) {
 	}
 }
 
+// 15b. Server-initiated `finished:true` (without client-side Close()) must
+// close the segments channel so downstream Receive() consumers unblock.
+// Covers the rate-limit / inactivity server-initiated termination path.
+func TestSoniox_ServerInitiatedFinishedClosesChannel(t *testing.T) {
+	server := mockSonioxServer(t, func(t *testing.T, conn *websocket.Conn, cfg sonioxConfigMessage) {
+		// Immediately send finished:true without waiting for an empty
+		// client frame — this simulates the server terminating the session
+		// on its own.
+		sonioxWriteJSON(t, conn, sonioxResponse{Finished: true})
+		// Keep the socket alive briefly so the client reads the frame
+		// before we disappear.
+		drainClient(conn, nil)
+	})
+	defer server.Close()
+
+	st := newTestSonioxTranscriber(wsSonioxURL(server))
+	if err := st.Connect(context.Background(), sonioxTestOpts()); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+
+	ch := st.Receive()
+	select {
+	case _, ok := <-ch:
+		if ok {
+			// A tail segment is tolerable; but we must then observe close.
+			select {
+			case _, ok2 := <-ch:
+				if ok2 {
+					t.Fatal("channel delivered a second value after server finished:true")
+				}
+			case <-time.After(1 * time.Second):
+				t.Fatal("segments channel did not close after server finished:true (second receive timed out)")
+			}
+		}
+		// ok=false -> channel closed. Good.
+	case <-time.After(1 * time.Second):
+		t.Fatal("segments channel did not close within 1s of server finished:true")
+	}
+
+	// Close() after server-initiated shutdown must be idempotent / safe.
+	if err := st.Close(); err != nil {
+		t.Errorf("Close after server-initiated shutdown: %v", err)
+	}
+}
+
 // 15. Reconnection preserves monotonic timestamps. After the first session
 // emits a segment ending at 2000ms and the connection drops, the second
 // session's tokens restart from 0 but must be offset so the post-reconnect
