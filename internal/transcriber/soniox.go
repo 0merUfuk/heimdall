@@ -402,11 +402,14 @@ func (s *SonioxTranscriber) sendConfig(conn *websocket.Conn) error {
 
 // buildConfigMessage translates TranscribeOpts + SonioxConfig into the
 // Soniox first-frame JSON shape. Language handling:
-//   - "multi" or "auto" or empty → language_hints=["tr","en"] + language ID
-//     on. This is the TR+EN code-switched mode that motivated AD-011.
-//   - any specific code (e.g. "tr", "en") → single-language hint. We still
-//     set language_hints so the decoder can fall back to English proper
-//     nouns/acronyms that appear in otherwise-Turkish speech.
+//   - "multi" or "auto" or empty → language_hints=["tr","en"] +
+//     enable_language_identification=true. This is the TR+EN code-switched
+//     mode that motivated AD-011.
+//   - any specific code (e.g. "tr", "en") → single-language hint WITHOUT
+//     enable_language_identification. Per Soniox spec §5, that flag should
+//     only be set when multilingual detection is desired; enabling it for
+//     a monolingual session forces the decoder into multilingual mode
+//     unnecessarily.
 func (s *SonioxTranscriber) buildConfigMessage() sonioxConfigMessage {
 	msg := sonioxConfigMessage{
 		APIKey:                   s.cfg.APIKey,
@@ -438,8 +441,11 @@ func (s *SonioxTranscriber) buildConfigMessage() sonioxConfigMessage {
 		msg.LanguageHints = []string{"tr", "en"}
 		msg.EnableLanguageIdentification = true
 	default:
+		// Monolingual session: hint the specific code but leave language
+		// identification off so the decoder doesn't waste cycles on
+		// multilingual inference.
 		msg.LanguageHints = []string{lang}
-		msg.EnableLanguageIdentification = true
+		msg.EnableLanguageIdentification = false
 	}
 
 	return msg

@@ -261,6 +261,45 @@ func TestSoniox_Connect_TREnHintsFromMulti(t *testing.T) {
 	_ = st.Close()
 }
 
+// 4b. Monolingual language config does NOT enable language identification.
+// Per Soniox spec §5, the flag should only be set when multilingual
+// detection is desired. Enabling it for a single-language session forces
+// unnecessary multilingual inference.
+func TestSoniox_Connect_MonolingualNoLangID(t *testing.T) {
+	var gotCfg sonioxConfigMessage
+	var mu sync.Mutex
+	done := make(chan struct{})
+
+	server := mockSonioxServer(t, func(t *testing.T, conn *websocket.Conn, cfg sonioxConfigMessage) {
+		mu.Lock()
+		gotCfg = cfg
+		mu.Unlock()
+		close(done)
+		drainClient(conn, nil)
+	})
+	defer server.Close()
+
+	st := newTestSonioxTranscriber(wsSonioxURL(server))
+	opts := sonioxTestOpts()
+	opts.Language = "en"
+	if err := st.Connect(context.Background(), opts); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	<-done
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(gotCfg.LanguageHints) != 1 || gotCfg.LanguageHints[0] != "en" {
+		t.Errorf("language_hints: got %v, want [en]", gotCfg.LanguageHints)
+	}
+	if gotCfg.EnableLanguageIdentification {
+		t.Error("enable_language_identification must be false for monolingual session")
+	}
+
+	_ = st.Close()
+}
+
 // 5. Diarization flag is respected.
 func TestSoniox_Connect_DiarizationFlag(t *testing.T) {
 	tests := []struct {
