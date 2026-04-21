@@ -16,7 +16,7 @@ v1.0 feature-complete through PR #24 (first-run consent banner + doctor Screen R
 - **Strategy**: `docs/STRATEGY_V2.md` -- post-grill execution plan
 - **Build**: `make build` produces `bin/heimdall` (Go) + `bin/heimdall-audio` (Swift)
 - **Tests**: 10 packages, all passing with `-race`
-- **Main HEAD**: `40d8f13` (merge of PR #24)
+- **Main HEAD**: `9834992` (merge of PR #25)
 
 ---
 
@@ -24,6 +24,7 @@ v1.0 feature-complete through PR #24 (first-run consent banner + doctor Screen R
 
 | PR | Description |
 |----|-------------|
+| #25 | **docs**: post-wave3 sync — config path fixes (PRIVACY.md, SECURITY.md), CHANGELOG backfill for PRs #21-24, README `--consent-acknowledged` flag row, SERVICE_CONTEXT sync through PR #24 (merged 2026-04-22) |
 | #24 | **feat**: first-run recording-consent banner + doctor Screen Recording preflight (`--consent-acknowledged`, atomic `Config.Save`) |
 | #23 | **docs**: PRIVACY.md data-flow + BIPA notice, SECURITY.md disclosure, AD-011 ratifying Option A |
 | #22 | **feat**: `/sprint` skill for quick workplan status |
