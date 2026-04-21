@@ -356,6 +356,14 @@ func runConfigGet(cmd *cobra.Command, args []string) error {
 	_ = cfg.ResolveEnvVars()
 	resolvedVal, _ := getConfigValue(cfg, key)
 
+	// SEC-01: never print an API key in cleartext. rawVal may be a ${VAR}
+	// placeholder (maskSecret preserves those) and resolvedVal is the
+	// expanded secret from the environment (must be masked).
+	if isSecretKey(key) {
+		rawVal = maskSecret(rawVal)
+		resolvedVal = maskSecret(resolvedVal)
+	}
+
 	if rawVal != resolvedVal {
 		fmt.Printf("%s (raw: %s)\n", resolvedVal, rawVal)
 	} else {
@@ -404,7 +412,13 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("saving config: %w", err)
 	}
 
-	fmt.Printf("%s = %s\n", key, value)
+	// SEC-01: the success echo must not leak an API key into shell history
+	// or CI logs. maskSecret preserves ${VAR} placeholders verbatim.
+	displayValue := value
+	if isSecretKey(key) {
+		displayValue = maskSecret(value)
+	}
+	fmt.Printf("%s = %s\n", key, displayValue)
 	return nil
 }
 
@@ -499,7 +513,14 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
-	data, err := yaml.Marshal(cfg)
+	// SEC-02: mask API keys before dumping YAML. ${VAR} placeholders pass
+	// through unchanged (they are not secrets). We mutate a shallow copy
+	// so the loaded cfg is untouched for any subsequent use.
+	display := *cfg
+	display.Deepgram.APIKey = maskSecret(display.Deepgram.APIKey)
+	display.Claude.APIKey = maskSecret(display.Claude.APIKey)
+
+	data, err := yaml.Marshal(&display)
 	if err != nil {
 		return fmt.Errorf("marshaling config: %w", err)
 	}
