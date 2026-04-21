@@ -225,7 +225,9 @@ heimdall sends meeting data to two external services:
 
 heimdall does not store audio or transcripts on any server it controls. API keys are stored as environment variable references, never in plaintext config files.
 
-**Recording consent**: Meeting recording may be subject to consent laws in your jurisdiction. In the US, 12+ states require all-party consent. In the EU, participants must generally be informed. Please ensure all meeting participants are aware that recording is active.
+**Recording consent**: Meeting recording may be subject to consent laws in your jurisdiction. In the US, 12+ states require all-party consent (see the [Justia 50-state survey](https://www.justia.com/50-state-surveys/recording-of-conversations-laws/) for the current state-by-state map). In the EU, participants must generally be informed. Please ensure all meeting participants are aware that recording is active.
+
+See [PRIVACY.md](PRIVACY.md) for the full data-flow and biometric-data notice.
 
 ## License
 
