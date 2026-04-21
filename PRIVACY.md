@@ -20,7 +20,7 @@ This is not legal advice. If you are adopting heimdall inside an organization, c
 | Microphone + system audio (PCM, streamed over WebSocket) | Transcription | Deepgram Inc. (US; EU endpoint `api.eu.deepgram.com` available via config) | Zero retention beyond the live session. heimdall sets `mip_opt_out=true` by default so audio is **not** retained for model training. See [Deepgram's Model Improvement Partnership docs](https://developers.deepgram.com/docs/the-deepgram-model-improvement-partnership-program). |
 | Transcript text (HTTPS request body) | Summarization / speaker-map / action-item generation | Anthropic PBC (US) | 7-day API log retention per [Anthropic's retention policy](https://privacy.claude.com/en/articles/10023548-how-long-do-you-store-my-data) (as of 2025-09-15). API data is excluded from model training by default under Anthropic's [Commercial Terms](https://www.anthropic.com/legal/commercial-terms). |
 | Meeting notes + raw transcript (markdown files) | Local Obsidian vault | Your machine | User-controlled. Note: vaults synced via iCloud / Dropbox / Obsidian Sync extend the data trail to those providers. |
-| API keys | `~/Library/Application Support/heimdall/config.yaml` or environment variables | Your machine | User-controlled. Mode `0600` recommended. |
+| API keys | `~/.heimdall/config.yaml` or environment variables | Your machine | User-controlled. Mode `0600` recommended. |
 | Crash-recovery snapshots | `~/.heimdall/recovery/*.json` | Your machine | Written every 30 seconds during recording, mode `0600`, deleted on clean shutdown (see V-006 in `docs/architecture/ASSESSMENT.md`). |
 
 ## 3. Data controller
