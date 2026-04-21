@@ -582,10 +582,21 @@ func (s *SonioxTranscriber) tokensToSegment(tokens []sonioxToken, offset time.Du
 	}
 }
 
-// emit sends a segment onto the output channel. Never blocks — consumer
-// falling behind results in dropped segments, consistent with audio-safety
-// rules.
+// emit sends a segment onto the output channel and advances timeOffset so
+// the post-reconnect accumulator starts after this segment's end. Never
+// blocks — consumer falling behind results in dropped segments, consistent
+// with audio-safety rules.
 func (s *SonioxTranscriber) emit(seg heimdall.Segment) {
+	// Advance timeOffset to this segment's end so any subsequent reconnect
+	// (whose token timestamps restart from zero) continues monotonically.
+	// Guarded by mu because handleDisconnect reads timeOffset under the
+	// same lock.
+	s.mu.Lock()
+	if seg.End > s.timeOffset {
+		s.timeOffset = seg.End
+	}
+	s.mu.Unlock()
+
 	select {
 	case s.segments <- seg:
 	case <-s.ctx.Done():
@@ -621,12 +632,11 @@ func (s *SonioxTranscriber) handleDisconnect(failedConn *websocket.Conn, origina
 		s.conn = nil
 	}
 	// Soniox token timestamps are from stream start, so a new conn resets
-	// them to 0. Accumulate an offset equal to the largest end-ms we've
-	// emitted so far so reconnected segments remain monotonic. For the
-	// scaffold we approximate this by tracking the last flushed token's
-	// end-ms via timeOffset. (Not tested against a real reconnection;
-	// tagged TODO(soniox-reconnect-offset) if the validation spike uncovers
-	// drift.)
+	// them to 0. timeOffset holds the end-time of the last-emitted segment
+	// (updated on every emit()) so reconnected segments remain monotonic.
+	// Single-session-to-reconnect transitions are covered by tests; the
+	// multi-reconnect-in-one-meeting path inherits the same invariant from
+	// the per-emission write but is not exercised by tests yet.
 	existingOffset := s.timeOffset
 	s.mu.Unlock()
 

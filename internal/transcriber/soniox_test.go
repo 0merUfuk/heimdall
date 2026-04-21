@@ -578,6 +578,119 @@ func TestSoniox_EndOfStreamEmptyFrame(t *testing.T) {
 	}
 }
 
+// 15. Reconnection preserves monotonic timestamps. After the first session
+// emits a segment ending at 2000ms and the connection drops, the second
+// session's tokens restart from 0 but must be offset so the post-reconnect
+// segment's Start is >= the prior segment's End.
+func TestSoniox_ReconnectPreservesTimestamps(t *testing.T) {
+	// Use a dispatcher that serves a different handler per connection so we
+	// can simulate "first connection drops, second connection serves new
+	// tokens".
+	var attempt atomic.Int32
+	secondDone := make(chan struct{})
+
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool { return true },
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		// Read the config frame (all sessions start with it).
+		if _, _, err := conn.ReadMessage(); err != nil {
+			return
+		}
+
+		a := attempt.Add(1)
+		switch a {
+		case 1:
+			// First session: emit a complete utterance ending at 2000ms,
+			// then drop the socket without a graceful finished:true. The
+			// client's readLoop will surface an error and trigger
+			// handleDisconnect.
+			sonioxWriteJSON(t, conn, sonioxResponse{
+				Tokens: []sonioxToken{
+					{Text: "First", StartMS: 1000, EndMS: 1500, Confidence: 0.9, IsFinal: true, Speaker: "1"},
+					{Text: " ", StartMS: 1500, EndMS: 1520, Confidence: 0.9, IsFinal: true, Speaker: "1"},
+					{Text: "one", StartMS: 1520, EndMS: 1980, Confidence: 0.9, IsFinal: true, Speaker: "1"},
+					{Text: ".", StartMS: 1980, EndMS: 2000, Confidence: 0.9, IsFinal: true, Speaker: "1"},
+				},
+			})
+			// Give the client a moment to read + emit, then hard-drop.
+			time.Sleep(150 * time.Millisecond)
+			return
+		case 2:
+			// Second session (post-reconnect): emit tokens with zero-based
+			// timestamps. The transcriber must offset these by the
+			// previously-emitted segment's End (2000ms) so Start >= 2000ms.
+			sonioxWriteJSON(t, conn, sonioxResponse{
+				Tokens: []sonioxToken{
+					{Text: "Second", StartMS: 500, EndMS: 900, Confidence: 0.9, IsFinal: true, Speaker: "1"},
+					{Text: " ", StartMS: 900, EndMS: 920, Confidence: 0.9, IsFinal: true, Speaker: "1"},
+					{Text: "two", StartMS: 920, EndMS: 1400, Confidence: 0.9, IsFinal: true, Speaker: "1"},
+					{Text: ".", StartMS: 1400, EndMS: 1500, Confidence: 0.9, IsFinal: true, Speaker: "1"},
+				},
+			})
+			time.Sleep(100 * time.Millisecond)
+			sonioxWriteJSON(t, conn, sonioxResponse{Finished: true})
+			close(secondDone)
+			drainClient(conn, nil)
+			return
+		default:
+			drainClient(conn, nil)
+			return
+		}
+	}))
+	defer server.Close()
+
+	st := newTestSonioxTranscriber(wsSonioxURL(server))
+	// Shorter backoff + minimal retry budget so the test completes in well
+	// under the default timeout.
+	st.maxReconnectFailures = 3
+	st.maxBackoff = 500 * time.Millisecond
+
+	if err := st.Connect(context.Background(), sonioxTestOpts()); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	defer st.Close()
+
+	// First segment from the first session.
+	first := readOneSegment(t, st, 3*time.Second)
+	if first.Text != "First one." {
+		t.Errorf("first segment text: got %q, want %q", first.Text, "First one.")
+	}
+	if first.End != 2000*time.Millisecond {
+		t.Errorf("first segment End: got %v, want 2000ms", first.End)
+	}
+
+	// Second segment comes from the reconnected session. Its start_ms was
+	// 500 but must be offset so Start >= first.End.
+	second := readOneSegment(t, st, 5*time.Second)
+	if second.Text != "Second two." {
+		t.Errorf("second segment text: got %q, want %q", second.Text, "Second two.")
+	}
+	if second.Start < first.End {
+		t.Errorf("second.Start (%v) is earlier than first.End (%v) — reconnect offset was not applied",
+			second.Start, first.End)
+	}
+	// Exact check: 500ms raw + 2000ms offset = 2500ms.
+	wantStart := 2500 * time.Millisecond
+	if second.Start != wantStart {
+		t.Errorf("second.Start: got %v, want %v (500ms raw + 2000ms offset)", second.Start, wantStart)
+	}
+
+	// Drain the server goroutine.
+	select {
+	case <-secondDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("second server session did not complete")
+	}
+}
+
 // -------------------------------------------------------------------------
 // Helpers
 // -------------------------------------------------------------------------
