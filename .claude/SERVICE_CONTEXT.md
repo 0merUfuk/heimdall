@@ -1,6 +1,6 @@
-**Version**: 3.0
+**Version**: 3.1
 **Created**: 2026-03-28
-**Last Updated**: 2026-04-18
+**Last Updated**: 2026-04-22
 **Authors:** Omer Ufuk
 
 ---
@@ -9,13 +9,14 @@
 
 ## Current State
 
-v1.0 feature-complete through PR #14 (profiles + config UX). Pipeline tested. 18 of 19 MASTER_PLAN subtasks complete — 1E.2 (final review + release) open.
+v1.0 feature-complete through PR #24 (first-run consent banner + doctor Screen Recording preflight). Pipeline tested. 18 of 19 MASTER_PLAN subtasks complete — 1E.2 (final review + release) open.
 
 - **Status**: v0.1.0 — 18/19 MASTER_PLAN subtasks complete, pending v0.1.0 release tag (see NEXT_STEPS)
 - **Execution plan**: `docs/MASTER_PLAN.md` -- 18/19 subtasks complete (1E.2 — final review + release — pending)
 - **Strategy**: `docs/STRATEGY_V2.md` -- post-grill execution plan
 - **Build**: `make build` produces `bin/heimdall` (Go) + `bin/heimdall-audio` (Swift)
-- **Tests**: 9 packages, all passing with `-race`
+- **Tests**: 10 packages, all passing with `-race`
+- **Main HEAD**: `40d8f13` (merge of PR #24)
 
 ---
 
@@ -23,6 +24,10 @@ v1.0 feature-complete through PR #14 (profiles + config UX). Pipeline tested. 18
 
 | PR | Description |
 |----|-------------|
+| #24 | **feat**: first-run recording-consent banner + doctor Screen Recording preflight (`--consent-acknowledged`, atomic `Config.Save`) |
+| #23 | **docs**: PRIVACY.md data-flow + BIPA notice, SECURITY.md disclosure, AD-011 ratifying Option A |
+| #22 | **feat**: `/sprint` skill for quick workplan status |
+| #21 | **fix/sec**: mask API keys in `config set/get/show` (SEC-01, SEC-02); assert `mip_opt_out=true` invariant on Deepgram URL |
 | #14 | **feat**: meeting profiles + config UX — zero-flag daily workflow |
 | #12 | **fix**: add user-facing guardrails for all failure paths |
 | #11 | **fix**: switch from multichannel to mono+diarize for N-speaker meetings (see ID-001) |
@@ -46,7 +51,8 @@ v1.0 feature-complete through PR #14 (profiles + config UX). Pipeline tested. 18
 | `internal/transcriber` | Transcriber interface + DeepgramTranscriber (WebSocket) | transcriber.go, deepgram.go |
 | `internal/analyzer` | Analyzer interface + ClaudeAnalyzer (Anthropic API) | analyzer.go, claude.go, prompts.go |
 | `internal/output` | Writer interface + ObsidianWriter (Go templates) | writer.go, renderer.go |
-| `internal/config` | YAML config, env var resolution, validation | config.go, defaults.go |
+| `internal/config` | YAML config, env var resolution, validation; atomic `Save` (temp+rename, V-006) | config.go, defaults.go |
+| `internal/consent` | First-run recording-consent banner + persistent acknowledgement (PR #24) | consent.go |
 | `internal/recovery` | Crash recovery (atomic writes every 30s) | recovery.go |
 | `internal/session` | MeetingSession orchestrator (wires stages 1-4) | session.go |
 | `cmd/heimdall` | CLI commands: main.go, record.go, doctor.go, list.go, config.go, recover.go, version.go | 7 files |
