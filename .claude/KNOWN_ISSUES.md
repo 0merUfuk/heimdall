@@ -1,6 +1,6 @@
-**Version**: 2.0
+**Version**: 2.1
 **Created**: 2026-03-28
-**Last Updated**: 2026-04-18
+**Last Updated**: 2026-04-21
 **Authors:** Omer Ufuk
 
 ---
@@ -35,7 +35,7 @@ These are documented trade-offs, not bugs:
 | Speaker ID resets on WebSocket reconnection | Diarize mode uses Deepgram-assigned speaker IDs per connection; IDs may differ across reconnections. ID-001 documents the mono+diarize runtime path. |
 | No local ASR fallback in v1.0 | Planned for v2.0 (Whisper.cpp) |
 | System audio requires macOS 14.2+ | Doctor validates version, clear error message |
-| Deepgram Turkish code-switching not supported | `--keywords` flag for English tech terms in Turkish meetings |
+| Deepgram Turkish code-switching not supported | `--keywords` flag now flows through to Deepgram's keyword-boost parameter on the WebSocket URL (per PR #16), improving recognition of English tech terms in Turkish meetings. Does not fully resolve TR+EN code-switching. |
 | LLM may hallucinate action items | Anti-hallucination prompt engineering (V-013) |
 | Transcript content as prompt injection vector | Delimiter wrapping + sanitized --participants/--keywords (V-014) |
 
@@ -46,7 +46,6 @@ These are documented trade-offs, not bugs:
 | Item | Severity | Notes |
 |------|----------|-------|
 | `ring_buffer.go` exists but is unused | Low | Kept as reusable type for future V-005 reconnection buffering |
-| `go.mod` says `go 1.25.6` (doesn't exist) | Low | Works with current toolchain, cosmetic issue |
 | Config CLI uses simple text prompts, not TUI | Low | charmbracelet/huh TUI deferred |
 | Audio package test coverage ~62% | Low | Hardware-dependent code hard to unit test |
 | Claude analyzer uses raw HTTP, not official SDK | Low | Better testability via httptest |

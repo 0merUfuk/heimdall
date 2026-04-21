@@ -687,6 +687,7 @@ func TestBuildURL(t *testing.T) {
 				"smart_format": "true",
 				"multichannel": "true",
 				"diarize":      "true",
+				"mip_opt_out":  "true",
 			},
 			notWant: nil,
 		},
@@ -706,6 +707,7 @@ func TestBuildURL(t *testing.T) {
 				"channels":     "2",
 				"encoding":     "linear16",
 				"multichannel": "true",
+				"mip_opt_out":  "true",
 			},
 			notWant: []string{"diarize=true"},
 		},
@@ -726,6 +728,7 @@ func TestBuildURL(t *testing.T) {
 				"channels":    "1",
 				"encoding":    "linear16",
 				"diarize":     "true",
+				"mip_opt_out": "true",
 			},
 			notWant: []string{"multichannel=true"},
 		},
@@ -744,6 +747,7 @@ func TestBuildURL(t *testing.T) {
 				"sample_rate": "16000",
 				"channels":    "1",
 				"encoding":    "linear16",
+				"mip_opt_out": "true",
 			},
 			notWant: []string{"multichannel=true", "diarize=true"},
 		},
@@ -760,8 +764,17 @@ func TestBuildURL(t *testing.T) {
 				"detect_language": "true",
 				"model":           "nova-3",
 				"multichannel":    "true",
+				"mip_opt_out":     "true",
 			},
 			notWant: []string{"language=multi"},
+		},
+		{
+			name: "empty opts still includes mip_opt_out",
+			opts: heimdall.TranscribeOpts{},
+			want: map[string]string{
+				"mip_opt_out": "true",
+			},
+			notWant: nil,
 		},
 	}
 
@@ -1003,6 +1016,7 @@ func TestConnectURLParameters(t *testing.T) {
 
 	// testOpts() sets Channels=2 and Diarize=true. With independent flag logic,
 	// both multichannel=true and diarize=true should be present in the URL.
+	// mip_opt_out=true is an unconditional privacy default (see Deepgram MIP).
 	requiredParams := []string{
 		"model=nova-3",
 		"language=en",
@@ -1013,6 +1027,7 @@ func TestConnectURLParameters(t *testing.T) {
 		"encoding=linear16",
 		"punctuate=true",
 		"smart_format=true",
+		"mip_opt_out=true",
 	}
 
 	for _, param := range requiredParams {
@@ -1142,6 +1157,52 @@ func TestSendAfterClose(t *testing.T) {
 	err := dt.Send(heimdall.AudioFrame{Data: []byte{0x01}})
 	if err == nil {
 		t.Fatal("expected error on Send after Close, got nil")
+	}
+}
+
+// TestDeepgram_BuildURL_AlwaysIncludesMIPOptOut is a dedicated invariant test
+// for the `mip_opt_out=true` query parameter on the Deepgram WebSocket URL.
+//
+// Deepgram's Model Improvement Program (MIP) retains customer audio and
+// transcripts for model training unless explicitly opted out. heimdall
+// records private meetings, so we must NEVER ship audio to Deepgram without
+// this flag. A future refactor of buildURL that drops this flag would be a
+// silent privacy regression — this test is the backstop.
+//
+// If this test fails: DO NOT "fix the test" by deleting the assertion.
+// Re-add the `mip_opt_out=true` query param in buildURL and understand why
+// it got dropped.
+func TestDeepgram_BuildURL_AlwaysIncludesMIPOptOut(t *testing.T) {
+	cases := []heimdall.TranscribeOpts{
+		{},
+		{Language: "en", Model: "nova-3"},
+		{Language: "tr", Model: "nova-3", Channels: 1, Diarize: true},
+		{Language: "multi", Model: "nova-3", Channels: 2, SampleRate: 16000, Encoding: "linear16"},
+		{
+			Language:    "en",
+			Model:       "nova-3",
+			Channels:    2,
+			SampleRate:  16000,
+			Encoding:    "linear16",
+			Diarize:     true,
+			Punctuate:   true,
+			SmartFormat: true,
+			Keywords:    []string{"Kubernetes", "gRPC"},
+		},
+	}
+
+	for i, opts := range cases {
+		dt := NewDeepgramTranscriber("test-key")
+		dt.opts = opts
+
+		urlStr, err := dt.buildURL()
+		if err != nil {
+			t.Fatalf("case %d: buildURL() error = %v", i, err)
+		}
+
+		if !strings.Contains(urlStr, "mip_opt_out=true") {
+			t.Errorf("case %d: URL must contain mip_opt_out=true for Deepgram MIP privacy opt-out; got %s", i, urlStr)
+		}
 	}
 }
 
