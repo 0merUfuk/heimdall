@@ -31,6 +31,7 @@ var (
 	recordParticipants        string
 	recordKeywords            string
 	recordProfile             string
+	recordTranscriber         string
 	recordConsentAcknowledged bool
 )
 
@@ -55,20 +56,41 @@ func init() {
 	recordCmd.Flags().StringVar(&recordTitle, "title", "", "meeting title (auto-generated if omitted)")
 	recordCmd.Flags().StringVar(&recordLanguage, "language", "en", "transcription language code (e.g., en, tr, multi)")
 	recordCmd.Flags().StringVar(&recordParticipants, "participants", "", "comma-separated list of participant names (hints for speaker identification)")
-	recordCmd.Flags().StringVar(&recordKeywords, "keywords", "", "comma-separated list of context keywords for analysis")
+	recordCmd.Flags().StringVar(&recordKeywords, "keywords", "", "comma-separated list of context keywords for analysis (Deepgram only; ignored for Soniox)")
 	recordCmd.Flags().StringVar(&recordProfile, "profile", "", "meeting profile name (from config)")
+	recordCmd.Flags().StringVar(&recordTranscriber, "transcriber", "deepgram", "transcription provider: deepgram (default) or soniox")
 	recordCmd.Flags().BoolVar(&recordConsentAcknowledged, "consent-acknowledged", false,
 		"acknowledge the recording-consent banner non-interactively (for scripts/CI; does not persist to config)")
 	rootCmd.AddCommand(recordCmd)
 }
 
 func runRecord(cmd *cobra.Command, args []string) error {
-	// Check for Deepgram API key.
-	apiKey := os.Getenv("DEEPGRAM_API_KEY")
-	if apiKey == "" {
-		return fmt.Errorf("DEEPGRAM_API_KEY environment variable is not set\n\n" +
-			"Set it with:\n  export DEEPGRAM_API_KEY=your_key_here\n\n" +
-			"Get a free API key at: https://console.deepgram.com/")
+	// Validate --transcriber up front so an unknown value fails fast with a
+	// clear message before we open audio devices or prompt for consent.
+	switch recordTranscriber {
+	case "", transcriber.ProviderDeepgram, transcriber.ProviderSoniox:
+	default:
+		return fmt.Errorf("--transcriber %q is not valid: use %q (default) or %q",
+			recordTranscriber, transcriber.ProviderDeepgram, transcriber.ProviderSoniox)
+	}
+
+	// Provider-specific API-key preflight. We do NOT require DEEPGRAM_API_KEY
+	// when --transcriber=soniox is in use, or vice-versa.
+	var apiKey, sonioxAPIKey string
+	if recordTranscriber == transcriber.ProviderSoniox {
+		sonioxAPIKey = os.Getenv("SONIOX_API_KEY")
+		if sonioxAPIKey == "" {
+			return fmt.Errorf("SONIOX_API_KEY environment variable is not set\n\n" +
+				"Set it with:\n  export SONIOX_API_KEY=your_key_here\n\n" +
+				"Get an API key at: https://soniox.com/")
+		}
+	} else {
+		apiKey = os.Getenv("DEEPGRAM_API_KEY")
+		if apiKey == "" {
+			return fmt.Errorf("DEEPGRAM_API_KEY environment variable is not set\n\n" +
+				"Set it with:\n  export DEEPGRAM_API_KEY=your_key_here\n\n" +
+				"Get a free API key at: https://console.deepgram.com/")
+		}
 	}
 
 	// Create a context that listens for interrupt signals.
@@ -192,11 +214,40 @@ func runRecord(cmd *cobra.Command, args []string) error {
 	systemSource = audio.NewSystemAudioSource("")
 	micSource := audio.NewMicrophoneSource()
 
-	// Stage 3: Create the transcriber.
-	dgTranscriber := transcriber.NewDeepgramTranscriber(apiKey)
+	// Stage 3: Create the transcriber via the factory. Deepgram is the
+	// default path; Soniox is opt-in. The factory resolves unknown names
+	// to a clean error — we've already validated the flag above, so this
+	// call is the single-source-of-truth provider constructor.
+	//
+	// Construct config shims from the env-var-preflighted API keys above.
+	// `cfg` (loaded from ~/.heimdall/config.yaml) provides the non-secret
+	// fields (model, language) as overrides when set; env-derived keys win
+	// for the secret itself so users who export the shell variable see the
+	// expected behaviour without running `heimdall config set`.
+	dgCfg := config.DeepgramConfig{APIKey: apiKey}
+	snxCfg := config.SonioxConfig{APIKey: sonioxAPIKey}
+	if cfg != nil {
+		if cfg.Deepgram.Model != "" {
+			dgCfg.Model = cfg.Deepgram.Model
+		}
+		if cfg.Deepgram.Language != "" {
+			dgCfg.Language = cfg.Deepgram.Language
+		}
+		if cfg.Soniox.Model != "" {
+			snxCfg.Model = cfg.Soniox.Model
+		}
+		if cfg.Soniox.Language != "" {
+			snxCfg.Language = cfg.Soniox.Language
+		}
+	}
+
+	sttProvider, err := transcriber.NewFromName(recordTranscriber, dgCfg, snxCfg)
+	if err != nil {
+		return err
+	}
 
 	// Create the session orchestrator (wires stages 1-4).
-	sess := session.NewMeetingSession(recordTitle, systemSource, micSource, dgTranscriber, recordLanguage, keywords)
+	sess := session.NewMeetingSession(recordTitle, systemSource, micSource, sttProvider, recordLanguage, keywords)
 
 	// V-006: Create crash recovery writer (writes segments to disk every 30s).
 	recWriter, err := recovery.NewRecoveryWriter(recordTitle, time.Now(), recordLanguage)
@@ -231,7 +282,11 @@ func runRecord(cmd *cobra.Command, args []string) error {
 	if sess.SystemAvailable() {
 		sysStatus = "on"
 	}
-	fmt.Printf("Audio: system %s  mic on  | STT: deepgram (connected) | recording...\n", sysStatus)
+	sttName := recordTranscriber
+	if sttName == "" {
+		sttName = transcriber.ProviderDeepgram
+	}
+	fmt.Printf("Audio: system %s  mic on  | STT: %s (connected) | recording...\n", sysStatus, sttName)
 	if sysStatus == "off" {
 		fmt.Println("  (system audio unavailable -- recording mic only)")
 	}

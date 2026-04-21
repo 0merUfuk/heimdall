@@ -110,6 +110,17 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		fmt.Printf("  [FAIL] DEEPGRAM_API_KEY not set\n")
 	}
 
+	// Check Soniox API key (optional — Soniox is opt-in via
+	// `--transcriber soniox`, so absence is not a doctor failure).
+	total++
+	if os.Getenv("SONIOX_API_KEY") != "" {
+		fmt.Printf("  [pass] Soniox API key configured\n")
+		passed++
+	} else {
+		fmt.Printf("  [info] Soniox API key not configured (optional, for --transcriber soniox)\n")
+		passed++ // opt-in provider; absence is not a failure
+	}
+
 	// Check Anthropic API key.
 	total++
 	if os.Getenv("ANTHROPIC_API_KEY") != "" {
