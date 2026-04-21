@@ -173,9 +173,21 @@ func runRecord(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Config language as default when flag not changed.
-	if !cmd.Flags().Changed("language") && cfg != nil && cfg.Deepgram.Language != "" && recordLanguage == "en" {
-		recordLanguage = cfg.Deepgram.Language
+	// Config language as default when flag not changed. Scope the fallback
+	// to the active provider so a user with `deepgram.language: de` in
+	// config running `heimdall record --transcriber soniox` does not end
+	// up with a German Soniox session (and vice versa).
+	if !cmd.Flags().Changed("language") && cfg != nil && recordLanguage == "en" {
+		switch recordTranscriber {
+		case transcriber.ProviderSoniox:
+			if cfg.Soniox.Language != "" {
+				recordLanguage = cfg.Soniox.Language
+			}
+		default:
+			if cfg.Deepgram.Language != "" {
+				recordLanguage = cfg.Deepgram.Language
+			}
+		}
 	}
 
 	// Auto-generate title if still empty.
