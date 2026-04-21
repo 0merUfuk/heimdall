@@ -3,6 +3,10 @@
 ## v0.1.0 (Unreleased)
 
 ### Added
+- First-run recording-consent banner with persistent acknowledgement, plus `--consent-acknowledged` flag for non-interactive scripts/CI (PR #24).
+- `heimdall doctor` Screen Recording permission preflight via `audio-helper --check-permissions` (PR #24).
+- PRIVACY.md with data-flow table and BIPA Illinois notice; SECURITY.md vulnerability disclosure policy; AD-011 ratifying Option A strategy (PR #23).
+- `/sprint` skill for quick workplan status (PR #22).
 - Meeting profiles feature -- define per-meeting-type defaults (language, keywords, participants, output formatting) and select with `--profile` (PR #14)
 - `heimdall config init` -- interactive setup wizard (PR #14)
 - `heimdall config show` -- print the resolved config (PR #14)
@@ -13,10 +17,15 @@
 - `--profile <name>` flag on `heimdall record` to select a profile at recording time (PR #14)
 
 ### Changed
+- `Config.Save` now uses atomic temp+rename (V-006 pattern) to avoid partial writes on crash (PR #24).
 - Transcription runtime switched from multichannel to mono + diarization (PR #11). Deepgram now receives `channels=1` with `diarize=true`; speaker IDs are assigned by voice fingerprint. The mixer still produces stereo internally; `session.go` downmixes to mono before handing off to the transcriber. See `.claude/DECISIONS.md` ID-001 (supersedes AD-007).
 - Config validation errors surface clearly to the user instead of generic wrapped errors (PR #10).
 - User-facing guardrails added on all failure paths (PR #12, follow-ups in PR #13) -- missing API keys, vault path not found, permission denied, and subprocess crashes all produce actionable error messages instead of stack traces.
 - Documentation refresh -- architecture docs, reading lists, and cross-references updated to match the shipped codebase (PR #9).
+
+### Security
+- Mask API keys in `config set` / `config get` / `config show` output so credentials no longer echo to the terminal or shell history (SEC-01, SEC-02) (PR #21).
+- Lock `mip_opt_out=true` invariant on the Deepgram WebSocket URL via test assertions so a regression cannot silently re-enable model-training retention (PR #21).
 
 ### Fixed
 - Config validation -- invalid YAML, missing required fields, and bad type coercion now fail fast with specific line/field errors rather than silent defaults (PR #10).
