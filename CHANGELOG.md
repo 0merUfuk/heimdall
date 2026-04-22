@@ -3,6 +3,7 @@
 ## v0.1.0 (Unreleased)
 
 ### Added
+- SonioxTranscriber scaffolding behind the existing `Transcriber` interface. Deepgram remains the default; opt-in via `--transcriber soniox` once `SONIOX_API_KEY` is configured. Validation spike (TR+EN WER + streaming latency measurement) is a separate manual operator task per AD-011 Phase 2.
 - First-run recording-consent banner with persistent acknowledgement, plus `--consent-acknowledged` flag for non-interactive scripts/CI (PR #24).
 - `heimdall doctor` Screen Recording permission preflight via `audio-helper --check-permissions` (PR #24).
 - PRIVACY.md with data-flow table and BIPA Illinois notice; SECURITY.md vulnerability disclosure policy; AD-011 ratifying Option A strategy (PR #23).

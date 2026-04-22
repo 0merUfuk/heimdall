@@ -13,6 +13,7 @@ import (
 // Config holds all heimdall configuration. Loaded from ~/.heimdall/config.yaml.
 type Config struct {
 	Deepgram DeepgramConfig     `yaml:"deepgram"`
+	Soniox   SonioxConfig       `yaml:"soniox,omitempty"`
 	Claude   ClaudeConfig       `yaml:"claude"`
 	Obsidian ObsidianConfig     `yaml:"obsidian"`
 	Audio    AudioConfig        `yaml:"audio"`
@@ -27,6 +28,31 @@ type DeepgramConfig struct {
 	APIKey   string `yaml:"api_key"`
 	Model    string `yaml:"model"`
 	Language string `yaml:"language"`
+}
+
+// SonioxConfig holds Soniox real-time STT API configuration.
+//
+// Soniox is an opt-in alternative to Deepgram selected at runtime via
+// `heimdall record --transcriber soniox`. The zero value is valid — users
+// who never set an API key continue to use Deepgram with no config changes.
+// Validation of Soniox fields is conditional on APIKey being non-empty so
+// the default Deepgram path is never blocked by an unset Soniox API key.
+//
+// See docs/architecture/DECISIONS.md AD-011 for the strategic rationale
+// (code-switched TR+EN transcription for the v1.0 Turkish market).
+type SonioxConfig struct {
+	// APIKey is the Soniox API key or a ${VAR} reference to one.
+	APIKey string `yaml:"api_key,omitempty"`
+
+	// Model is the Soniox real-time model name. Defaults to "stt-rt-v4"
+	// when empty. The older "stt-rt-preview" alias is superseded per the
+	// Soniox docs and should not be used.
+	Model string `yaml:"model,omitempty"`
+
+	// Language is the transcription language hint. Special values "multi"
+	// and "auto" enable TR+EN code-switched mode. An explicit code (e.g.
+	// "tr", "en") biases the decoder toward a single language.
+	Language string `yaml:"language,omitempty"`
 }
 
 // ClaudeConfig holds Anthropic Claude API configuration.
@@ -179,6 +205,19 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("deepgram.language is required")
 	}
 
+	// Soniox validation (conditional: only validate when the user has
+	// actually configured Soniox; the zero value must not block users who
+	// are happy on the Deepgram default path).
+	if c.Soniox.APIKey != "" {
+		validSonioxModels := map[string]bool{
+			"stt-rt-v4": true,
+			"stt-rt-v3": true, // auto-routes to v4 per Soniox docs
+		}
+		if c.Soniox.Model != "" && !isEnvVarRef(c.Soniox.Model) && !validSonioxModels[c.Soniox.Model] {
+			return fmt.Errorf("soniox.model: unknown model %q", c.Soniox.Model)
+		}
+	}
+
 	// Claude validation.
 	if c.Claude.APIKey == "" {
 		return fmt.Errorf("claude.api_key is required")
@@ -227,6 +266,9 @@ func (c *Config) ResolveEnvVars() error {
 		{"deepgram.api_key", &c.Deepgram.APIKey},
 		{"deepgram.model", &c.Deepgram.Model},
 		{"deepgram.language", &c.Deepgram.Language},
+		{"soniox.api_key", &c.Soniox.APIKey},
+		{"soniox.model", &c.Soniox.Model},
+		{"soniox.language", &c.Soniox.Language},
 		{"claude.api_key", &c.Claude.APIKey},
 		{"claude.model", &c.Claude.Model},
 		{"obsidian.vault_path", &c.Obsidian.VaultPath},

@@ -9,6 +9,7 @@ import "strings"
 // holds an API token MUST appear here. Missing an entry is a SEC-01 leak.
 var secretKeys = map[string]struct{}{
 	"deepgram.api_key": {},
+	"soniox.api_key":   {},
 	"claude.api_key":   {},
 }
 

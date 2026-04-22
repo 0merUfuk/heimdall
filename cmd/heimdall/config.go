@@ -378,7 +378,7 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 
 	// Validate specific fields before saving.
 	switch key {
-	case "deepgram.api_key", "claude.api_key":
+	case "deepgram.api_key", "soniox.api_key", "claude.api_key":
 		if !strings.HasPrefix(value, "${") {
 			fmt.Println("Warning: API keys should be stored as environment variable references.")
 			fmt.Printf("  Recommended: heimdall config set %s '${ENV_VAR_NAME}'\n", key)
@@ -462,6 +462,12 @@ func setConfigValue(cfg *config.Config, key, value string) error {
 		cfg.Deepgram.Model = value
 	case "deepgram.language":
 		cfg.Deepgram.Language = value
+	case "soniox.api_key":
+		cfg.Soniox.APIKey = value
+	case "soniox.model":
+		cfg.Soniox.Model = value
+	case "soniox.language":
+		cfg.Soniox.Language = value
 	case "claude.api_key":
 		cfg.Claude.APIKey = value
 	case "claude.model":
@@ -518,6 +524,7 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 	// so the loaded cfg is untouched for any subsequent use.
 	display := *cfg
 	display.Deepgram.APIKey = maskSecret(display.Deepgram.APIKey)
+	display.Soniox.APIKey = maskSecret(display.Soniox.APIKey)
 	display.Claude.APIKey = maskSecret(display.Claude.APIKey)
 
 	data, err := yaml.Marshal(&display)
