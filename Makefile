@@ -1,7 +1,7 @@
 VERSION ?= 0.1.0-dev
 LDFLAGS := -ldflags "-X main.version=$(VERSION)"
 
-.PHONY: build clean test heimdall audio-helper lint doctor
+.PHONY: build clean test heimdall audio-helper audio-helper-universal lint doctor vuln
 
 build: heimdall audio-helper
 
@@ -14,6 +14,14 @@ audio-helper:
 	mkdir -p bin/
 	cp audio-helper/.build/release/heimdall-audio bin/heimdall-audio
 
+# Universal (arm64 + x86_64) build for release artifacts. GoReleaser ships a
+# single archive per Go arch, so the bundled Swift helper must be a fat binary
+# to run on both Apple Silicon and Intel Macs.
+audio-helper-universal:
+	cd audio-helper && swift build -c release --arch arm64 --arch x86_64
+	mkdir -p bin/
+	cp audio-helper/.build/apple/Products/Release/heimdall-audio bin/heimdall-audio
+
 clean:
 	rm -rf bin/
 	rm -rf audio-helper/.build/
@@ -23,6 +31,9 @@ test:
 
 lint:
 	golangci-lint run ./...
+
+vuln:
+	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
 doctor:
 	@echo "Checking prerequisites..."
