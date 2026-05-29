@@ -567,30 +567,50 @@ func (d *DeepgramTranscriber) proactiveReconnect() {
 
 	// Swap connections and update state.
 	d.mu.Lock()
+	// Re-check closed AFTER the dial: Close() can run during the dial window
+	// (dial does not hold d.mu). If Close() already set d.closed and reached
+	// wg.Wait(), installing newConn and spawning a readLoop below would leave
+	// that readLoop blocked on ReadMessage forever (its socket is never closed)
+	// -- deadlocking Close(). Bail out and close the orphaned connection instead.
+	if d.closed {
+		d.mu.Unlock()
+		newConn.Close()
+		return
+	}
 	d.conn = newConn
 	d.connID++
 	newConnID := d.connID
 	d.timeOffset += elapsed
 	d.startTime = time.Now()
+
+	// Register the new goroutines in the WaitGroup while still holding d.mu.
+	// Close() sets d.closed=true under this same mutex before it ever reaches
+	// wg.Wait(); since we just observed d.closed==false, these Add calls
+	// provably happen-before any wg.Wait() in Close() -- no Add-after-Wait race.
+	d.wg.Add(2)
+	// The old-connection closer is bounded by a grace-period sleep, so it cannot
+	// deadlock Close(). Register it under the same lock to keep all Add calls
+	// ordered before Close()'s wg.Wait().
+	closeOld := oldConn != nil
+	if closeOld {
+		d.wg.Add(1)
+	}
 	d.mu.Unlock()
 
 	// Start readLoop and keepAliveLoop for the new connection.
-	d.wg.Add(2)
 	go d.readLoop(newConn, newConnID)
 	go d.keepAliveLoop(newConnID)
 
 	// Close old connection -- this will cause the old readLoop to exit.
 	// The old readLoop checks connID and will not trigger handleDisconnect
 	// since its connID no longer matches the current one.
-	if oldConn != nil {
+	if closeOld {
 		// Send CloseStream to old connection using writeMessage for proper
 		// write mutex serialization.
 		closeMsg := []byte(`{"type":"CloseStream"}`)
 		_ = d.writeMessage(oldConn, websocket.TextMessage, closeMsg)
 
 		// Close old connection after a brief grace period for CloseStream to flush.
-		// Track the goroutine in the WaitGroup so Close() waits for it.
-		d.wg.Add(1)
 		go func() {
 			defer d.wg.Done()
 			time.Sleep(500 * time.Millisecond)
@@ -667,15 +687,27 @@ func (d *DeepgramTranscriber) handleDisconnect(failedConn *websocket.Conn, origi
 
 		// Reconnection successful.
 		d.mu.Lock()
+		// Re-check closed AFTER the dial (same race as proactiveReconnect):
+		// Close() may have run during the backoff/dial window. If it already
+		// reached wg.Wait(), installing newConn and spawning a readLoop here
+		// would deadlock Close() on a readLoop that never sees a closed socket.
+		if d.closed {
+			d.mu.Unlock()
+			newConn.Close()
+			return
+		}
 		d.conn = newConn
 		d.connID++
 		newConnID := d.connID
 		d.timeOffset += elapsed
 		d.startTime = time.Now()
+
+		// Register goroutines under d.mu so the Add provably happens-before
+		// Close()'s wg.Wait() (Close sets d.closed under this same mutex).
+		d.wg.Add(2)
 		d.mu.Unlock()
 
 		// Restart the readLoop and keepAliveLoop for the new connection.
-		d.wg.Add(2)
 		go d.readLoop(newConn, newConnID)
 		go d.keepAliveLoop(newConnID)
 		return

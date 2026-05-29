@@ -253,7 +253,6 @@ func TestReconnection_MultipleReconnections(t *testing.T) {
 // TestReconnection_SendDuringReconnect verifies that Send calls during a
 // proactive reconnection do not panic or block indefinitely.
 func TestReconnection_SendDuringReconnect(t *testing.T) {
-	t.Skip("Known race condition in test harness — underlying reconnection logic tested in deepgram_test.go")
 	var connectionCount atomic.Int32
 
 	server := mockDeepgramServer(t, func(conn *websocket.Conn) {
