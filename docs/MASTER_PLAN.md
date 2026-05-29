@@ -665,6 +665,8 @@ Update this section after each session. Check the box when complete.
 - [x] 1E.1 — Distribution setup
 - [ ] 1E.2 — Final review + release
 
+> **Note (2026-05-29)**: The Soniox transcriber (PRs #26, #27) shipped as a Phase 2 spike beyond this original 19-subtask plan — it is opt-in via `--transcriber soniox` and does not change the v0.1.0 (Deepgram-default) scope, so the subtasks above are intentionally left unrenumbered. Live work for the v0.1.0 finishing push is now tracked in `tasks/todo.md`, which is the canonical live tracker; this Progress Tracker remains the record of the original MVP plan.
+
 **Total subtasks**: 19
 **Human checkpoints**: 5 (HC-1 through HC-5)
 **Estimated sessions**: 7 (each ~2-4 hours of autonomous work)

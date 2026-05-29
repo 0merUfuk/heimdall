@@ -1,6 +1,6 @@
-**Version**: 2.1
+**Version**: 2.2
 **Created**: 2026-03-28
-**Last Updated**: 2026-04-21
+**Last Updated**: 2026-05-29
 **Authors:** Omer Ufuk
 
 ---
@@ -9,6 +9,16 @@
 
 > Full vulnerability assessment (28 findings): `docs/architecture/ASSESSMENT.md`
 > Grill report (20-agent audit): `docs/GRILL_REPORT.md`
+
+---
+
+## Open
+
+| Issue | Severity | Status |
+|-------|----------|--------|
+| `internal/transcriber` `TestReconnection_*` intermittently hangs under `-race` | Blocker (test flake; blocks a green v0.1.0 test run) | In-flight fix on branch `fix/transcriber-reconnect-hang` (discovered 2026-05-29) |
+
+The reconnection tests (`internal/transcriber/reconnection_test.go`) do not deterministically complete under the race detector — a run can hang rather than fail. `make test` is therefore not reliably green until the fix lands. The hang is in the test/transcriber interaction at the proactive-reconnection boundary (V-001), not in shipped record/analyze paths. Treat `make test` as not-yet-green when reporting v0.1.0 readiness.
 
 ---
 
