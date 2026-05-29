@@ -14,11 +14,14 @@
 
 ## Open
 
-| Issue | Severity | Status |
-|-------|----------|--------|
-| `internal/transcriber` `TestReconnection_*` intermittently hangs under `-race` | Blocker (test flake; blocks a green v0.1.0 test run) | In-flight fix on branch `fix/transcriber-reconnect-hang` (discovered 2026-05-29) |
+No open blockers for v0.1.0. (Remaining pre-tag gates are owner actions: real-voice smoke test + macOS signing decision — see NEXT_STEPS.)
 
-The reconnection tests (`internal/transcriber/reconnection_test.go`) do not deterministically complete under the race detector — a run can hang rather than fail. `make test` is therefore not reliably green until the fix lands. The hang is in the test/transcriber interaction at the proactive-reconnection boundary (V-001), not in shipped record/analyze paths. Treat `make test` as not-yet-green when reporting v0.1.0 readiness.
+---
+
+## Resolved in v0.1.0 release-readiness PR (2026-05-29)
+
+- **`TestReconnection_*` hang / `Close()` deadlock under `-race`** — root-caused as a real production deadlock, not a test flake: `Close()` could hang on `wg.Wait()` if it ran during a reconnect `dial()` window, because the reconnect re-acquired `d.mu`, resurrected `d.conn`, and spawned a `readLoop` whose socket was never closed. Fixed by re-checking `d.closed` after `dial()` under `d.mu` and moving `wg.Add` into that locked section (clean happens-before with `Close()`'s `d.closed = true`). `TestReconnection_SendDuringReconnect` re-enabled. Verified 15/15 green under `-race`; full `make test` now green across all 11 packages.
+- **8 callable stdlib CVEs** — resolved by bumping the toolchain to `go1.25.10`; `govulncheck` reports 0 callable vulnerabilities.
 
 ---
 

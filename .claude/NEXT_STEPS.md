@@ -17,7 +17,7 @@
 
 Development resumed 2026-05-29 after a dormant stretch. The 2026-05-16 v0.1.0 tag target was missed. Since the last NEXT_STEPS refresh, the Soniox transcriber landed as a Phase 2 spike (PR #26 implementation + flag + doctor + factory, PR #27 five correctness fixes) — Deepgram remains the default. A v0.1.0 finishing push is now underway, tracked in `tasks/todo.md`.
 
-**Release blocker**: `internal/transcriber` `TestReconnection_*` intermittently hangs under `-race`, so `make test` is not reliably green. Fix is in-flight on branch `fix/transcriber-reconnect-hang` (see KNOWN_ISSUES). v0.1.0 should not be tagged until this is resolved and the suite passes cleanly.
+**Release blocker (RESOLVED 2026-05-29)**: the `TestReconnection_*` hang was a real `Close()` deadlock during the reconnect dial window (not a test flake); fixed in the v0.1.0 release-readiness PR. `make test` is now green across all 11 packages (10/10 reconnection runs under `-race`), `govulncheck` is clean, and `cmd/heimdall` coverage is 38.1%. The remaining gates to tag v0.1.0 are owner actions: the real-voice smoke test and the macOS code-signing decision.
 
 ## v1.0 — FEATURE-COMPLETE (18/19 subtasks)
 
@@ -27,11 +27,12 @@ All 18 completed MASTER_PLAN subtasks executed. Security review passed (PR #6). 
 
 | Task | Status |
 |------|--------|
-| Resolve `TestReconnection_*` race hang (`fix/transcriber-reconnect-hang`) | IN PROGRESS — blocks tag |
-| Get `make test` reliably green under `-race` | BLOCKED on the above |
-| Smoke test with real voices (docs/MANUAL_TESTING.md) | PENDING |
-| Tag v0.1.0 release | PENDING (after green tests + smoke test; original 2026-05-16 target missed) |
-| Create Homebrew tap repo | NOT STARTED |
+| Resolve `TestReconnection_*` race hang | DONE — real `Close()` deadlock fixed (v0.1.0 readiness PR) |
+| Get `make test` reliably green under `-race` | DONE — 11 pkgs green; 10/10 reconnection |
+| macOS code-signing decision (cert+notarize vs unsigned+`xattr`) | PENDING — owner decision |
+| Smoke test with real voices (docs/MANUAL_TESTING.md) | PENDING — owner action, kill-criteria gate |
+| Tag v0.1.0 release | PENDING (after smoke test + signing decision; original 2026-05-16 target missed) |
+| Create Homebrew tap repo | NOT STARTED (Phase 5 / Day-60 — deliberately deferred) |
 
 ## Phase 2 (from STRATEGY_V2.md)
 
