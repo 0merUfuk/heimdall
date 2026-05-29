@@ -1,6 +1,6 @@
-**Version**: 3.1
+**Version**: 3.2
 **Created**: 2026-03-28
-**Last Updated**: 2026-04-22
+**Last Updated**: 2026-05-29
 **Authors:** Omer Ufuk
 
 ---
@@ -9,14 +9,14 @@
 
 ## Current State
 
-v1.0 feature-complete through PR #24 (first-run consent banner + doctor Screen Recording preflight). Pipeline tested. 18 of 19 MASTER_PLAN subtasks complete — 1E.2 (final review + release) open.
+v1.0 feature-complete through PR #24 (first-run consent banner + doctor Screen Recording preflight). Soniox transcriber added as a Phase 2 spike (PRs #26, #27). Pipeline tested. 18 of 19 MASTER_PLAN subtasks complete — 1E.2 (final review + release) open; `tasks/todo.md` is now the canonical live tracker for the v0.1.0 finishing push.
 
-- **Status**: v0.1.0 — 18/19 MASTER_PLAN subtasks complete, pending v0.1.0 release tag (see NEXT_STEPS)
-- **Execution plan**: `docs/MASTER_PLAN.md` -- 18/19 subtasks complete (1E.2 — final review + release — pending)
+- **Status**: v0.1.0 finishing push (in progress) — 18/19 MASTER_PLAN subtasks complete, pending v0.1.0 release tag (see NEXT_STEPS)
+- **Execution plan**: `docs/MASTER_PLAN.md` -- 18/19 subtasks complete (1E.2 — final review + release — pending); `tasks/todo.md` tracks live work
 - **Strategy**: `docs/STRATEGY_V2.md` -- post-grill execution plan
 - **Build**: `make build` produces `bin/heimdall` (Go) + `bin/heimdall-audio` (Swift)
-- **Tests**: 10 packages, all passing with `-race`
-- **Main HEAD**: `9834992` (merge of PR #25)
+- **Tests**: 11 Go packages with tests (10 `internal/` + `cmd/heimdall`). NOT reliably green: `internal/transcriber` `TestReconnection_*` intermittently hangs under `-race`; in-flight fix on branch `fix/transcriber-reconnect-hang` (see KNOWN_ISSUES).
+- **Main HEAD**: `38a307a` (merge of PR #27 — Soniox scaffolding)
 
 ---
 
@@ -24,6 +24,8 @@ v1.0 feature-complete through PR #24 (first-run consent banner + doctor Screen R
 
 | PR | Description |
 |----|-------------|
+| #27 | **fix(soniox)**: dropped-segment logging, provider-scoped `--language` fallback, language-ID disable for monolingual sessions, segments-channel close on server `finished:true`, `timeOffset` tracking on segment emit for reconnect correctness (merged 2026-04-22) |
+| #26 | **feat(soniox)**: SonioxTranscriber implementation + `SonioxConfig` (env-var resolution + secret masking) + `--transcriber` flag + doctor Soniox key check + `transcriber.NewFromName` factory (merged 2026-04-22) |
 | #25 | **docs**: post-wave3 sync — config path fixes (PRIVACY.md, SECURITY.md), CHANGELOG backfill for PRs #21-24, README `--consent-acknowledged` flag row, SERVICE_CONTEXT sync through PR #24 (merged 2026-04-22) |
 | #24 | **feat**: first-run recording-consent banner + doctor Screen Recording preflight (`--consent-acknowledged`, atomic `Config.Save`) |
 | #23 | **docs**: PRIVACY.md data-flow + BIPA notice, SECURITY.md disclosure, AD-011 ratifying Option A |
@@ -49,14 +51,14 @@ v1.0 feature-complete through PR #24 (first-run consent banner + doctor Screen R
 | `internal/heimdall` | Shared types (AudioFrame, Segment, MeetingNote) | types.go |
 | `internal/audio` | AudioSource interface + MicrophoneSource + SystemAudioSource | source.go, microphone.go, system.go |
 | `internal/mixer` | Resample 48->16kHz, interleave stereo (L=system, R=mic) — downmixed to mono by session.go before Deepgram (see ID-001) | mixer.go, resample.go |
-| `internal/transcriber` | Transcriber interface + DeepgramTranscriber (WebSocket) | transcriber.go, deepgram.go |
+| `internal/transcriber` | Transcriber interface + DeepgramTranscriber and SonioxTranscriber (WebSocket) + `NewFromName` provider factory | transcriber.go, deepgram.go, soniox.go, factory.go |
 | `internal/analyzer` | Analyzer interface + ClaudeAnalyzer (Anthropic API) | analyzer.go, claude.go, prompts.go |
 | `internal/output` | Writer interface + ObsidianWriter (Go templates) | writer.go, renderer.go |
 | `internal/config` | YAML config, env var resolution, validation; atomic `Save` (temp+rename, V-006) | config.go, defaults.go |
 | `internal/consent` | First-run recording-consent banner + persistent acknowledgement (PR #24) | consent.go |
 | `internal/recovery` | Crash recovery (atomic writes every 30s) | recovery.go |
 | `internal/session` | MeetingSession orchestrator (wires stages 1-4) | session.go |
-| `cmd/heimdall` | CLI commands: main.go, record.go, doctor.go, list.go, config.go, recover.go, version.go | 7 files |
+| `cmd/heimdall` | CLI commands: main.go, record.go (incl. `--transcriber` flag), doctor.go (incl. Soniox key check), list.go, config.go, recover.go (registers `recover` + `analyze`), secrets.go, version.go | 8 files |
 
 ---
 
@@ -64,8 +66,8 @@ v1.0 feature-complete through PR #24 (first-run consent banner + doctor Screen R
 
 | Command | Purpose |
 |---------|---------|
-| `heimdall record` | Full pipeline recording (now supports `--profile`) |
-| `heimdall doctor` | Check prerequisites (validates macOS >= 14.2) |
+| `heimdall record` | Full pipeline recording (supports `--profile` and `--transcriber deepgram|soniox`) |
+| `heimdall doctor` | Check prerequisites (validates macOS >= 14.2; reports Deepgram, Soniox, Anthropic key status) |
 | `heimdall list` | List past meeting notes |
 | `heimdall config init` | Interactive first-run wizard |
 | `heimdall config get <key>` | Read a dotted-path value (e.g. `obsidian.vault_path`) |
@@ -75,5 +77,6 @@ v1.0 feature-complete through PR #24 (first-run consent banner + doctor Screen R
 | `heimdall config path` | Print config file path |
 | `heimdall config add-profile <name>` | Define a meeting profile (PR #14) |
 | `heimdall config profiles` | List available profiles |
-| `heimdall recover` | Scan for orphaned recovery files |
+| `heimdall recover` | Scan for orphaned recovery files and re-analyze them |
+| `heimdall analyze --file <path>` | Re-analyze a specific recovery transcript JSON file |
 | `heimdall version` | Print version info |

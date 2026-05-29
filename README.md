@@ -7,7 +7,7 @@ Named after the Norse god who could hear grass growing.
 ## Features
 
 - Captures system audio (remote participants) and microphone (your voice) simultaneously
-- Real-time transcription with speaker diarization via Deepgram Nova-3
+- Real-time transcription with speaker diarization via Deepgram Nova-3 (default), with Soniox as an opt-in alternative (`--transcriber soniox`)
 - Post-meeting analysis via Claude -- summary, decisions, action items, speaker identification
 - Writes Obsidian-native markdown with YAML frontmatter, wikilinks, and collapsible transcript
 - Crash recovery -- periodic temp file saves, recover interrupted sessions
@@ -74,13 +74,16 @@ heimdall record --title "Meeting" --keywords "Kubernetes,gRPC"
 | `--title` | Meeting title (required) |
 | `--participants` | Comma-separated participant names (hints for speaker ID) |
 | `--language` | Transcription language code (default: `en`, use `multi` for auto-detect) |
-| `--keywords` | Comma-separated context keywords |
+| `--keywords` | Comma-separated context keywords (Deepgram only; ignored under `--transcriber soniox`) |
+| `--transcriber` | Transcription provider: `deepgram` (default) or `soniox`. `soniox` requires `SONIOX_API_KEY` |
 | `--profile` | Use a named meeting profile from config (loads title, language, participants, keywords); explicit flags override profile values |
 | `--consent-acknowledged` | Acknowledge the recording-consent banner non-interactively (scripts/CI; does not persist to config) |
 
 ### `heimdall doctor`
 
 Check all prerequisites: macOS version, API keys, audio permissions, vault path.
+
+The Soniox API key is checked as optional: `doctor` reports `[pass]` when `SONIOX_API_KEY` is set and `[info]` when it is not. Because Soniox is opt-in (`--transcriber soniox`), an unset key does not count as a failed check.
 
 ### `heimdall list`
 
@@ -201,7 +204,7 @@ heimdall/
   internal/
     audio/                AudioSource interface + mic/system implementations
     mixer/                Audio resampling, format conversion, stereo interleaving
-    transcriber/          Transcriber interface + Deepgram WebSocket implementation
+    transcriber/          Transcriber interface + Deepgram and Soniox WebSocket implementations (NewFromName factory)
     analyzer/             Analyzer interface + Claude implementation
     output/               Obsidian template rendering + file writing
     config/               Config loading, validation, defaults

@@ -1,8 +1,8 @@
 # Heimdall — Architectural Decision Records
 
-**Version**: 1.1
+**Version**: 1.2
 **Created**: 2026-03-28
-**Last Updated**: 2026-04-21
+**Last Updated**: 2026-05-29
 **Authors:** Omer Ufuk
 
 ---
@@ -22,6 +22,9 @@
 | AD-009 | CLI-first, web dashboard deferred to post-v1.0 | Accepted | 2026-03-28 |
 | AD-010 | macOS 14.2+ minimum (Core Audio Taps requirement) | Accepted | 2026-03-28 |
 | AD-011 | Adopt Option A ("Ship-And-Hide") from 2026-04-16 strategic audit | Accepted | 2026-04-21 |
+| ID-001 | Mono + diarize over stereo + multichannel (supersedes AD-007) | Accepted | 2026-04-01 |
+
+> **ID-* entries** are implementation decisions recorded after the initial AD set; they are first-class and may supersede an AD. ID-001 is documented in full below; ID-002 through ID-004 live in `.claude/DECISIONS.md`.
 
 ---
 
@@ -147,13 +150,37 @@ type Analyzer interface {
 
 ---
 
+## ID-001: Mono + Diarize over Stereo + Multichannel
+
+**Status**: Accepted
+**Date**: 2026-04-01 (PR #11, commit e24110d)
+**Supersedes**: AD-007 (Dual-Channel Stereo Audio)
+
+**Context**: AD-007 specified stereo (L=system, R=mic) interleaved and sent to Deepgram with `multichannel=true`. Real-voice testing produced empty transcripts because Deepgram's `multichannel=true` and `diarize=true` parameters conflict: with multichannel enabled, diarization is applied per channel and capped at the number of channels (2). For N-speaker meetings on a single remote channel, all remote voices collapsed into one "Speaker 0", defeating speaker separation.
+
+**Decision**: The mixer still produces stereo (L=system, R=mic) internally for potential future use, but `internal/session/session.go` downmixes to mono before handing off to Deepgram. `TranscribeOpts` sends `channels=1`, `diarize=true`, and no `multichannel`. Deepgram's diarization then separates speakers by voice fingerprint rather than channel index, supporting N speakers on a single stream.
+
+**Rationale**:
+- Fixes the empty-transcript bug for real multi-speaker meetings
+- Voice-fingerprint diarization scales past 2 speakers (channel-index diarization did not)
+- Mono billing is cheaper: $0.58/hr instead of stereo $1.16/hr (see AD-002 amendment)
+- Simpler Deepgram URL construction (`multichannel` query parameter dropped)
+
+**Consequences**:
+- Speaker IDs now come from Deepgram's voice fingerprinting — per-connection, not stable across reconnections (acknowledged limitation; see KNOWN_ISSUES).
+- The mixer's stereo interleave is retained but currently unused downstream; the L=system/R=mic convention must not be swapped if it is ever re-enabled.
+
+The pipeline rules (`.claude/rules/pipeline-rules.md`) and audio-safety rules (`.claude/rules/audio-safety.md`) encode this runtime path. The same decision is mirrored in `.claude/DECISIONS.md` ID-001.
+
+---
+
 ## AD-007: Dual-Channel Stereo Audio
 
 **Status**: Superseded by ID-001 (2026-04-01)
 **Date**: 2026-03-28
 **Superseded Date**: 2026-04-01
 
-> **Superseded by `.claude/DECISIONS.md` ID-001**: The mixer still produces stereo (L=system, R=mic) internally, but `internal/session/session.go` downmixes to mono before Deepgram. `TranscribeOpts` sends `channels=1` with `diarize=true`, not `multichannel=true`. The rationale below is preserved for historical context but does not describe the current runtime path.
+> **Superseded by ID-001 (above)**: The mixer still produces stereo (L=system, R=mic) internally, but `internal/session/session.go` downmixes to mono before Deepgram. `TranscribeOpts` sends `channels=1` with `diarize=true`, not `multichannel=true`. The rationale below is preserved for historical context but does not describe the current runtime path.
 
 **Context**: System audio and microphone are two separate audio sources. They can be mixed into mono, sent as stereo, or sent as separate streams.
 
