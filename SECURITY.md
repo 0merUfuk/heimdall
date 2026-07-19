@@ -7,7 +7,7 @@ Please report security vulnerabilities privately. Do **not** open a public GitHu
 Preferred channels (in order):
 
 1. **GitHub Security Advisories** — open a private advisory at [github.com/0merUfuk/heimdall/security/advisories/new](https://github.com/0merUfuk/heimdall/security/advisories/new).
-2. **Email** — `trypix.ai@gmail.com`.
+2. **Email** — `ufukboz8@gmail.com`.
 
 We commit to:
 

@@ -304,7 +304,7 @@ func configDir() (string, error) {
 
 ```go
 // DON'T: Hardcode home directory paths
-dir := "/Users/omerufuk/.heimdall" // breaks on any other machine
+dir := "/Users/example/.heimdall" // breaks on any other machine
 dir := "~/.heimdall"               // ~ is shell syntax; Go won't expand it
 ```
 

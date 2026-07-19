@@ -1,9 +1,0 @@
-{
-  "stacks": [
-    {
-      "name": "go-net-http",
-      "from": "oracle-output/go-net-http/",
-      "to": ".claude/knowledge/go-net-http/"
-    }
-  ]
-}
