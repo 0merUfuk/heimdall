@@ -54,7 +54,7 @@
 #### Read.ai
 - **Source**: https://read.ai/pricing (accessed 2026-07-21)
 - **Free**: 5 meeting transcripts/mo, 1-hour max, basic integrations, 20+ languages
-- **Pro**: $15/user/mo annual ($19.75 monthly) — unlimited transcripts, 4hr max, premium integrations (Notion, Salesforce, HubSpot, Jira)
+- **Pro**: $15/user/mo annual ($19.75 monthly) — unlimited transcripts, 4hr max, premium integrations (Notion, Salesforce, HubSpot, CRM/project-management tools)
 - **Enterprise**: $22.50/user/mo annual ($29.75 monthly) — audio/video playback, video highlights, 8hr max
 - **Enterprise+**: $39.75/user/mo annual — HIPAA, SAML/SCIM, domain capture, custom data retention
 - **Model**: Per-seat SaaS, meeting bot joins calls

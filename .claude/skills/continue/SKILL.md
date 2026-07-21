@@ -15,6 +15,9 @@ Read the following files in order, then continue working on the next priority it
 1. `.claude/SERVICE_CONTEXT.md` — current project state
 2. `.claude/NEXT_STEPS.md` — what to work on next
 3. `.claude/KNOWN_ISSUES.md` — issues to be aware of
-4. `tasks/session-summary.md` — last session's handoff notes (if it exists)
+4. Latest `tasks/session-handoff*.md` — full verified handoff, if present
+5. `tasks/session-summary.md` — compatibility summary pointer, if present
 
-After reading, identify the highest-priority item from NEXT_STEPS.md and begin working on it. Track progress in `tasks/todo.md`.
+Before acting on handoff claims, verify current `git rev-parse HEAD`, `git status --short`, and any drift-check commands listed in the handoff. If HEAD/status drift invalidates the top next action, report the drift and ask before continuing.
+
+After reading, identify the highest-priority item from NEXT_STEPS.md or the latest verified handoff and begin working on it. Track progress in `tasks/todo.md`.

@@ -5,9 +5,9 @@
 
 ---
 
-# Heimdall — Claude Code Instructions
+# Heimdall — Codex Instructions
 
-Heimdall is a CLI meeting companion: captures audio, transcribes with speaker diarization, analyzes via Claude, and writes structured notes to an Obsidian vault. Go + Swift dual-binary architecture.
+Heimdall is a CLI meeting companion: captures audio, transcribes with speaker diarization, analyzes via Codex, and writes structured notes to an Obsidian vault. Go + Swift dual-binary architecture.
 
 > **Architecture docs**: `docs/architecture/` contains all pipeline design, decisions, MVP spec, roadmap, and vulnerability assessment.
 
@@ -31,8 +31,8 @@ Heimdall is a CLI meeting companion: captures audio, transcribes with speaker di
 5. Read `docs/architecture/MVP.md` — v1.0 specification, commands, config, templates
 6. Read `docs/architecture/ASSESSMENT.md` — 28 known vulnerabilities and mitigations
 7. Read `docs/architecture/ROADMAP.md` — phased roadmap from spike to v4.0
-8. Read `.claude/SERVICE_CONTEXT.md` — current implementation state
-9. Read `.claude/NEXT_STEPS.md` — prioritized work items
+8. Read `.Codex/SERVICE_CONTEXT.md` — current implementation state
+9. Read `.Codex/NEXT_STEPS.md` — prioritized work items
 
 ---
 
@@ -55,10 +55,10 @@ heimdall/
 ├── templates/                 # Go embed templates for Obsidian output
 ├── docs/
 │   └── architecture/          # All design docs (7 files, 2900+ lines)
-├── .claude/                   # Agent ecosystem (10 agents, 17 skills, 4 rules)
+├── .Codex/                   # Agent ecosystem (10 agents, 17 skills, 4 rules)
 ├── go.mod
 ├── Makefile
-└── CLAUDE.md
+└── AGENTS.md
 ```
 
 ---
@@ -109,7 +109,7 @@ type Analyzer interface {
 2. MIX        → Resample, convert, interleave stereo             [No LLM]
 3. TRANSCRIBE → Deepgram Nova-3 WebSocket (mono + diarize, ID-001) [No LLM]
 4. ACCUMULATE → In-memory segments + terminal display             [No LLM]
-5. ANALYZE    → Claude API (post-meeting) — the ONLY LLM stage  [LLM]
+5. ANALYZE    → Codex API (post-meeting) — the ONLY LLM stage  [LLM]
 6. RENDER     → Go templates → Obsidian vault markdown           [No LLM]
 ```
 
@@ -122,7 +122,7 @@ type Analyzer interface {
 - **V-003**: Screen Recording permission must be checked before recording starts
 - **V-005**: Network disruption requires ring buffer + reconnection logic
 - **V-006**: Crash recovery via temp file writes every 30 seconds
-- **V-009**: Claude API failures must fall back to raw transcript output
+- **V-009**: Codex API failures must fall back to raw transcript output
 
 > Full vulnerability list: `docs/architecture/ASSESSMENT.md`
 
@@ -132,14 +132,14 @@ type Analyzer interface {
 
 - **Pipeline clarity**: Each stage has one job. No LLM in the audio path. No audio processing in the output path.
 - **Provider abstraction**: Every external dependency sits behind an interface.
-- **Graceful degradation**: If Claude fails, write raw transcript. If Deepgram fails, save raw audio. Never lose the meeting.
+- **Graceful degradation**: If Codex fails, write raw transcript. If Deepgram fails, save raw audio. Never lose the meeting.
 - **Obsidian-native**: Output is vanilla markdown with YAML frontmatter. No plugin required.
 
 ---
 
 ## Agent Ecosystem
 
-10 agents in `.claude/agents/` for coordinated autonomous development:
+10 agents in `.Codex/agents/` for coordinated autonomous development:
 
 | Agent | Model | Role |
 |-------|-------|------|
@@ -154,7 +154,7 @@ type Analyzer interface {
 | `growth-lead` | opus | CMO perspective — adoption channels, community, content strategy |
 | `architect` | opus | Ecosystem evolution — creates/evolves agents, skills, rules |
 
-**Full pipeline**: `claude --agent manager` → reads MASTER_PLAN.md → spawns developer → tester → reviewer → creates PR.
+**Full pipeline**: `Codex --agent manager` → reads MASTER_PLAN.md → spawns developer → tester → reviewer → creates PR.
 
 ---
 
@@ -190,7 +190,7 @@ The master execution plan lives at `docs/MASTER_PLAN.md`. It contains 19 subtask
 **Phase summary:**
 - **Phase 0**: Foundation + Spike (types, interfaces, mic capture, Swift helper, mixer, Deepgram, end-to-end)
 - **Phase 1A**: Config system + doctor command
-- **Phase 1B**: Claude analyzer + Obsidian renderer + crash recovery
+- **Phase 1B**: Codex analyzer + Obsidian renderer + crash recovery
 - **Phase 1C**: Full record command (wire all 6 pipeline stages)
 - **Phase 1D**: Integration tests + security review
 - **Phase 1E**: Distribution + release (GoReleaser, Homebrew, README)
