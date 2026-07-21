@@ -18,17 +18,27 @@ This aligns with the owner's productizing preference: **open-source self-hosted 
 
 ## 2. Competitive landscape (2026-07)
 
-| Competitor | Model | Pricing | Heimdall's advantage |
-|---|---|---|---|
-| **Granola** ($1.5B) | Native app, MCP server | $14/mo | CLI-first, Obsidian-native, open-source, provider-swappable |
-| **Meetily** (10.8K⭐) | Local Whisper + Ollama, Tauri GUI | Free | CLI-first, MCP-native, Go distribution story, not tied to a GUI |
-| **Talat** (Mar 2026) | Core Audio Taps, local LLM, Obsidian export, MCP | Unknown (free beta) | Open-source, provider-agnostic, established ADRs, test coverage |
-| **Otter.ai** | SaaS, cloud transcription | $8.33–16.67/mo per seat | Local-first, no account, no data leaves machine |
-| **Fireflies.ai** | SaaS, bot-joins-meeting | $10–19/mo per seat | No bot in meeting, CLI composability, Obsidian integration |
-| **Apple Notes** (free) | On-device transcription + summary | Free | Turkish diarization, structured output, Obsidian, MCP, CLI |
-| **Read.ai** | SaaS, meeting intelligence + MCP | Free tier + paid | Local-first, open-source, own your data |
+> Full research with live pricing-page sources: `docs/MONETIZATION_RESEARCH.md`
 
-**The gap no one fills**: CLI-first + Obsidian-native + Turkish diarization + no-bot + open-source + MCP-native. Heimdall owns this intersection.
+| Competitor | Model | Pricing | Local-first | Heimdall's advantage |
+|---|---|---|---|---|
+| **Granola** ($1.5B) | Native macOS app, MCP server | Free / $14/mo / $35/mo | ❌ Cloud audio | CLI-first, open-source, provider-swappable |
+| **Meetily** (25.8K⭐) | Local Whisper + Ollama, Tauri GUI | Free CE / $10/mo PRO | ✅ | CLI-first, Go distribution, MCP-native, not tied to a GUI |
+| **Talat** (Mar 2026) | Core Audio Taps, local LLM, Obsidian export, MCP | 10hr free / $9/mo / **$189 lifetime** | ✅ On-device | Open-source, provider-agnostic, established ADRs, test coverage |
+| **Vexa** (2.6K⭐) | Open-source + hosted SaaS | Free self-host / $12/mo / $0.30-0.50/hr | ✅ Self-host | CLI-first, Obsidian-native, no bot required |
+| **Otter.ai** | SaaS, cloud transcription | $6.67–20/mo per seat | ❌ Cloud | Local-first, no account, no data leaves machine |
+| **Fireflies.ai** | SaaS, bot-joins-meeting | $10–39/mo per seat | ❌ Cloud | No bot in meeting, CLI composability, Obsidian integration |
+| **Read.ai** | SaaS, meeting intelligence + MCP | $15–39.75/mo per seat | ❌ Cloud | Local-first, open-source, own your data |
+| **tl;dv** | SaaS, bot + MCP server | $18–29/mo per seat | ❌ Cloud | No bot, local-first, open-source |
+| **Apple Notes** (free) | On-device transcription + summary | Free | ✅ | Turkish diarization, structured output, Obsidian, MCP, CLI |
+
+**Key pricing insight from research**: local-first tools are NOT priced at a premium — they're priced **at or below** cloud competitors ($9-10/mo vs $10-18/mo). Privacy is a **competitive differentiator at the same price**, not a premium feature. Talat's $189 lifetime license is explicitly cited as a purchase reason ("own your tools, like software used to work").
+
+**MCP market finding**: no one charges for MCP servers as a standalone product. MCP is a feature included in paid tiers (tl;dv, Read.ai gate it higher; Talat includes it in all paid tiers). Do NOT try to charge for MCP separately — use it as a stickiness driver.
+
+**GitHub Actions marketplace finding**: the meeting/transcription category on GitHub Marketplace is **empty** (0 results for "meeting transcription"). Actions are designed for CI/CD, not desktop apps. GitHub Sponsors is the most common monetization for popular CLI tools (lazygit, act) but revenue is modest (<$1K/mo for most).
+
+**The gap no one fills**: CLI-first + Obsidian-native + Turkish diarization + no-bot + open-source + MCP-native + lifetime license option. Heimdall owns this intersection.
 
 ---
 
@@ -51,52 +61,57 @@ Everything that works today stays free:
 
 **Principle**: if it runs on the user's machine with their own keys, it's free. No feature gating on the core CLI.
 
-### 3.2 Paid tier: Heimdall Cloud (managed infrastructure)
+### 3.2 Paid tier: Heimdall Pro (open-core + lifetime license)
 
-The paid product reduces friction for users who don't want to manage API keys, local models, or infrastructure. Three potential revenue streams:
+Based on the competitive research, the proven model for local-first meeting tools is **Meetily's open-core** (free MIT CE + paid PRO) + **Talat's lifetime license** (users explicitly cite "own your tools" as a purchase reason). Price at or below cloud competitors ($9-14/mo range).
 
-#### Stream A: Managed MCP Server (SaaS — MCP-as-a-service)
+#### Heimdall Community Edition (Free, MIT — everything that works today)
 
-| What | Free | Paid |
+| Feature | Status |
+|---|---|
+| `heimdall record` — full pipeline (capture → transcribe → analyze → Obsidian) | ✅ Free |
+| `heimdall doctor` / `config` / `recover` / `analyze` / `list` | ✅ Free |
+| Deepgram + Soniox provider support (BYO API key) | ✅ Free |
+| Whisper.cpp local STT (Phase 2B — zero API keys) | ✅ Free |
+| Ollama local LLM (Phase 3) | ✅ Free |
+| Obsidian markdown output with templates | ✅ Free |
+| Crash recovery, profiles, multi-language | ✅ Free |
+| `heimdall mcp` — MCP server (local stdio, basic tools: search/get/list) | ✅ Free |
+| `heimdall search`, `heimdall list --json`, `heimdall export` | ✅ Free |
+
+**Principle**: the full local CLI is free forever. No feature gating on anything that runs on the user's machine with their own keys. MCP is free — it drives adoption and stickiness (Talat includes it in all tiers; no one charges for MCP separately).
+
+#### Heimdall Pro ($9/mo or $99 lifetime)
+
+| Feature | Free CE | Pro |
 |---|---|---|
-| `heimdall mcp` (local stdio, reads your vault) | ✅ | ✅ |
-| Hosted MCP server (cloud endpoint, 24/7 uptime, team access) | — | $8/mo per user |
-| Cross-meeting search across all your meetings (server-side index) | — | ✅ |
-| "Ask Heimdall" — natural-language queries over meeting history via MCP | — | ✅ |
-| Team-shared meeting library (read-only, permission-scoped) | — | $5/mo per additional seat |
+| Everything in CE | ✅ | ✅ |
+| **Enhanced transcription models** (optimized multi-language, better Turkish) | — | ✅ |
+| **Custom meeting templates** (standup, 1:1, planning, retro) | — | ✅ |
+| **Cross-meeting intelligence** (feed last N meeting summaries as context) | — | ✅ |
+| **Advanced MCP tools** (get_action_items, get_decisions, vault-as-memory) | — | ✅ |
+| **People pages** (auto-generated `[[Person Name]]` pages with meeting history) | — | ✅ |
+| **Daily note integration** (auto-append meeting summaries to today's note) | — | ✅ |
+| **Calendar integration** (iCal auto-populate participants) | — | ✅ |
+| **Priority support** (GitHub issue priority, faster response) | — | ✅ |
+| **`heimdall upgrade --pro`** (license key activation, same binary) | — | ✅ |
 
-**Why this works**: the local MCP server (Phase 2C) is free, but it only works when your machine is on and heimdall is running. A hosted MCP endpoint means Claude Desktop / Cursor / any agent can query your meetings anytime, anywhere. Teams can share a meeting library without exposing raw audio.
+**Pricing logic**:
+- $9/mo matches Talat (the closest competitor) and undercuts Granola ($14/mo)
+- $99 lifetime undercuts Talat's $189 lifetime by ~48% — aggressive but captures the "own your tools" crowd
+- Pro is the same binary with license-key activation (like Meetily PRO) — no separate download
+- No SaaS infrastructure needed for the core Pro tier — features unlock locally
 
-**Why it fits the open-source-core model**: the local `heimdall mcp` command is the open-source reference implementation. The hosted version is the managed deployment of the same code — no feature gating, just infrastructure.
+#### Heimdall Cloud (optional add-on, managed infrastructure)
 
-#### Stream B: Managed Cloud Transcription (usage-based)
+For users who want cloud-grade features without managing infrastructure:
 
-| What | Free | Paid |
+| What | Price | What it is |
 |---|---|---|
-| BYO Deepgram/Anthropic key (user pays Deepgram directly) | ✅ | ✅ |
-| Heimdall-managed transcription (no API key needed) | — | $0.50/hr (prepaid) or $12/mo (20hr included) |
-| Heimdall-managed Claude analysis | — | $0.02/meeting (included in transcription cost) |
-| Automatic re-transcription when better models arrive | — | ✅ |
+| **Managed MCP endpoint** | $5/mo add-on to Pro | 24/7 hosted MCP server (same code, cloud deployment) so Claude Desktop/Cursor can query meetings when your machine is off |
+| **Cloud transcription** | $0.50/hr prepaid | No API keys needed — `heimdall record --cloud`. Uses heimdall's Deepgram volume pricing. Users can always fall back to BYO keys for free. |
 
-**Why this works**: the current cost barrier ($1.16/hr Deepgram + $0.02 Claude) requires users to sign up for Deepgram + Anthropic accounts, get API keys, configure `.env`. The managed tier removes this: `brew install heimdall && heimdall record --cloud` — zero API keys, zero configuration.
-
-**Pricing logic**: $0.50/hr is 43% of the raw Deepgram cost ($1.16/hr stereo). Heimdall benefits from mono billing ($0.58/hr) + volume discounts + the Soniox fallback (cheaper for some use cases). Margin comes from the spread + volume pricing. Prepaid credits (like Deepgram's $200 credit) avoid SaaS subscription fatigue.
-
-**Why it fits**: the core CLI with BYO keys is free forever. The managed tier is a convenience layer — users can always use their own keys and pay Deepgram directly.
-
-#### Stream C: GitHub Actions — Meeting Notes in CI (marketplace)
-
-| What | Free | Paid |
-|---|---|---|
-| `heimdall` binary in a GitHub Action (self-hosted runner) | ✅ Free (the action YAML is MIT) | ✅ |
-| Hosted runner with heimdall pre-installed (no macOS runner needed) | — | $0.05/min of meeting audio |
-| Meeting notes posted to GitHub Discussions / Issues / PR comments | — | ✅ |
-| Auto-generate PR summaries from meeting decisions | — | ✅ |
-| Link meeting decisions to issue/PR auto-closing | — | ✅ |
-
-**Why this works**: development teams record architecture meetings and want decisions linked to PRs. A GitHub Action that takes a meeting recording (uploaded artifact), runs heimdall, and posts structured notes + action items to the PR/issue closes the "meeting → code" loop.
-
-**Why it fits**: the Action wrapper is open-source. The paid tier is the hosted runner (GitHub's macOS runners cost $0.08/min; heimdall's rate undercuts that and adds meeting-specific value). This is the GitHub Marketplace monetization the owner prefers.
+Cloud is an **add-on to Pro**, not a replacement. Users who want everything local pay $99 lifetime and never touch cloud. Users who want convenience add cloud on top.
 
 ---
 
@@ -104,15 +119,17 @@ The paid product reduces friction for users who don't want to manage API keys, l
 
 | Tier | Price | Target user | What you get |
 |---|---|---|---|
-| **Core** (open-source) | Free | Developers, privacy-first users | Full CLI, BYO keys, local Whisper + Ollama, local MCP |
-| **Cloud STT** | $12/mo (20hr) or $0.50/hr | Users who want zero-config | No API keys, managed Deepgram + Claude, auto-retranscription |
-| **MCP Hosted** | $8/mo/user | Power users, agent-first workflows | 24/7 MCP endpoint, cross-meeting search, "Ask Heimdall" |
-| **Team** | $5/mo/seat (on top of MCP) | Small teams (2-10) | Shared meeting library, permission-scoped access |
-| **GitHub Action** | $0.05/min | Dev teams linking meetings to PRs | Hosted runner, PR-summary generation, issue auto-closing |
+| **Community Edition** (open-source, MIT) | Free | Developers, privacy-first users | Full CLI, BYO keys, local Whisper + Ollama, local MCP, Obsidian output |
+| **Pro** | $9/mo or **$99 lifetime** | Power users, Obsidian-centric workflows | Enhanced models, custom templates, cross-meeting intelligence, advanced MCP tools, people pages, daily note integration, calendar, priority support |
+| **Cloud MCP** (add-on to Pro) | +$5/mo | Agent-first workflows, always-on query | 24/7 hosted MCP endpoint, cross-meeting search index |
+| **Cloud STT** (add-on to Pro) | $0.50/hr prepaid | Zero-config users | No API keys needed, managed Deepgram + Claude |
+| **Enterprise** | Custom | Teams (5+) | Self-hosted team deployment, audit trails, volume licensing |
 
-**Annual discount**: 2 months free on all subscription tiers.
+**Lifetime license**: $99 one-time — all current + future Pro features, no subscription. This is the key differentiator: Talat charges $189, Meetily has no lifetime option. Heimdall offers the lowest lifetime price in the local-first meeting tools market.
 
-**Free trial**: Cloud STT + MCP Hosted get 10 hours free / 14-day trial, no credit card.
+**Annual discount**: 2 months free on the monthly subscription ($90/yr vs $108/yr).
+
+**Free trial**: 10 hours free (matches Talat's model — full features, no credit card, no time-bombed features).
 
 ---
 
@@ -136,17 +153,21 @@ The paid product reduces friction for users who don't want to manage API keys, l
 
 ## 6. Revenue projections (conservative)
 
+Based on Meetily's trajectory (25.8K stars in ~8 months) and Talat's conversion data:
+
 | Horizon | Users | Revenue/mo | Source | Assumptions |
 |---|---|---|---|---|
 | **Month 1** (launch) | 50 free, 0 paid | $0 | All free | STRATEGY_V2 targets 50 stars, 10 users |
-| **Month 3** | 100 free, 5 Cloud STT | $60 | Cloud STT $12/mo × 5 | 5% conversion to paid after trial |
-| **Month 6** | 200 free, 15 Cloud STT, 3 MCP | $210 | $12×15 + $8×3 | MCP launches month 3; team features month 4 |
-| **Month 12** | 500 free, 40 Cloud STT, 10 MCP, 2 team (5 seats) | $590 | $12×40 + $8×10 + $5×10 | GitHub Action launches month 6; team adoption |
-| **Year 2** | 2000 free, 100 Cloud STT, 30 MCP, 5 teams (avg 4 seats) | $1,570 | Sustained growth | Kill criteria check at month 6; if passing, continue |
+| **Month 3** | 100 free, 3 Pro (lifetime) | $0 (lifetime = one-time) / $27/mo (subscription) | Pro $9/mo × 3 or $99 × 3 lifetime | 3% conversion (conservative for OSS); Pro features shipped (templates, cross-meeting) |
+| **Month 6** | 200 free, 10 Pro, 2 Cloud MCP | $100/mo + $198 lifetime | $9×10 + $5×2 (add-on); or $99×10 lifetime | MCP server shipped; local-first value proven |
+| **Month 12** | 500 free, 30 Pro, 5 Cloud MCP, 2 Cloud STT | $290/mo + $2,970 lifetime | $9×30 + $5×5 + $0.50×20hr×2; or $99×30 lifetime | Whisper local mode shipped; Obsidian community posted |
+| **Year 2** | 2000 free, 100 Pro, 15 Cloud MCP, 5 Cloud STT | $1,015/mo + $9,900 lifetime | Sustained growth | Kill criteria passed; enterprise interest |
 
-**These are conservative.** The open-source core drives adoption; conversion happens at the integration layer. The 5% free-to-paid conversion is below the SaaS average (3-5% for freemium open-source).
+**Mix assumption**: 60% lifetime, 40% subscription (based on Talat's experience that lifetime converts privacy-conscious users faster).
 
-**Break-even**: Deepgram + Anthropic API costs for Cloud STT users. At $0.50/hr selling price and ~$0.30/hr effective cost (mono + volume), margin is $0.20/hr. 20 paid users at 20hr/mo = $80/mo gross margin. Server costs (MCP hosting + Cloud proxy) start at ~$20-50/mo (Railway/Fly.io). **Break-even at ~15-20 Cloud STT users.**
+**Break-even**: Pro features are local — no server costs. The only infrastructure cost is Cloud MCP + Cloud STT hosting (~$20-50/mo on Railway/Fly.io). **Break-even at ~5 Pro users** (lifetime covers it) or ~3 Pro monthly + 1 Cloud add-on.
+
+**Revenue ceiling for solo developer**: $1,000-2,000/mo at 100+ Pro users. This is supplementary income, not a company — which is the right scale for a personal project.
 
 ---
 
@@ -184,14 +205,14 @@ The paid product reduces friction for users who don't want to manage API keys, l
 
 | STRATEGY_V2 Phase | Productization deliverable | Revenue impact |
 |---|---|---|
-| **2A: Ship & Fix** | Tag v0.1.0, publish to Homebrew, post to communities | $0 (all free) |
-| **2B: Local Transcription** | Whisper.cpp support (free core) | $0 (but removes the "needs API keys" barrier → drives adoption) |
-| **2C: MCP Server** | Local MCP (free) + **launch Hosted MCP ($8/mo)** | First revenue stream |
-| **2D: Launch** | Community posts, README rewrite, demo GIF | Adoption drives the funnel |
-| **3: Intelligence** | Cross-meeting memory (free core) + **Cloud STT ($12/mo)** launches | Second revenue stream |
-| **4: Platform** | **GitHub Action** ($0.05/min) + **Team features** ($5/mo/seat) | Third + fourth revenue streams |
+| **2A: Ship & Fix** | Tag v0.1.0, publish to Homebrew, post to communities | $0 (all free CE) |
+| **2B: Local Transcription** | Whisper.cpp support (free CE) — removes "needs API keys" barrier | $0 (drives adoption — the funnel top) |
+| **2C: MCP Server** | Local MCP shipped (free CE, basic tools) + **Pro features built** (advanced MCP tools, cross-meeting, templates) | **First revenue**: `heimdall upgrade --pro` available |
+| **2D: Launch** | Community posts, README rewrite, demo GIF, **Pro landing page** | Adoption drives the conversion funnel |
+| **3: Intelligence** | Cross-meeting memory (Pro), people pages (Pro), daily note integration (Pro), Ollama local LLM (free CE) | Pro tier matures |
+| **4: Platform** | **Cloud MCP** ($5/mo add-on) + **Cloud STT** ($0.50/hr add-on) + Enterprise inquiries | Cloud add-ons launch |
 
-**Critical path**: MCP Hosted (Stream A) is the first revenue. It requires Phase 2C to ship the local `heimdall mcp` command first. The hosted version is the same server deployed on cloud infrastructure with auth + search index.
+**Critical path**: Pro features (templates, cross-meeting intelligence, advanced MCP tools) are the first revenue. They require Phase 2C (MCP server) + Phase 3 (cross-meeting) to ship first. The $99 lifetime price is available from day one of Pro — early adopters get the best deal.
 
 ---
 
