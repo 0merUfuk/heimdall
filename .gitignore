@@ -57,3 +57,6 @@ audio-helper/.swiftpm/
 
 # Agent worktrees (ephemeral)
 .claude/worktrees/
+
+# Legacy local agent mirror (not read by Hermes, Claude Code, or Codex)
+.agents/
