@@ -3,6 +3,7 @@
 ## v0.1.0 (Unreleased)
 
 ### Added
+- `.github/workflows/release.yml` -- pushing a `v*` tag now runs GoReleaser on a macOS runner and publishes a GitHub Release, with archives, checksums, and an auto-generated changelog. `.goreleaser.yml` gained a `homebrew_casks` block that pushes an updated cask to a `homebrew-heimdall` tap on every release (PR #38). See `docs/RELEASING.md` for the one-time setup this depends on and the current code-signing gap.
 - SonioxTranscriber scaffolding behind the existing `Transcriber` interface, with `SonioxConfig` (env-var resolution + secret masking) and the `transcriber.NewFromName(name, dgCfg, snxCfg)` provider factory. Deepgram remains the default; opt-in via the new `--transcriber soniox` flag on `heimdall record` once `SONIOX_API_KEY` is configured. `heimdall doctor` now reports Soniox API-key status (`[pass]` when set, `[info]` when unset — opt-in, so absence is not a failure). Validation spike (TR+EN WER + streaming latency measurement) is a separate manual operator task per AD-011 Phase 2 (PRs #26, #27).
 - First-run recording-consent banner with persistent acknowledgement, plus `--consent-acknowledged` flag for non-interactive scripts/CI (PR #24).
 - `heimdall doctor` Screen Recording permission preflight via `audio-helper --check-permissions` (PR #24).
