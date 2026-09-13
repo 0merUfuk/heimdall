@@ -171,11 +171,11 @@ func analyzeRecoveryFile(rf recovery.RecoveryFile, anthropicKey string, cfg *con
 	}
 	note, err := claude.Summarize(ctx, rf.Segments, opts)
 	if err != nil {
-		return fmt.Errorf("Claude analysis failed: %w", err)
+		return fmt.Errorf("claude analysis failed: %w", err)
 	}
 
 	if note == nil {
-		return fmt.Errorf("Claude returned nil result")
+		return fmt.Errorf("claude returned nil result")
 	}
 
 	// Fill in metadata from recovery file.
