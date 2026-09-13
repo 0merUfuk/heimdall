@@ -84,7 +84,7 @@ func (m *mockAudioSourceWithData) generateAudio(ctx context.Context) {
 			if m.channels == 2 && m.sampleRate == 48000 {
 				// System audio: 48kHz, 32-bit float, stereo.
 				totalSamples := samplesPerFrame * 2 // stereo pairs
-				data = make([]byte, totalSamples*4)  // 4 bytes per float32
+				data = make([]byte, totalSamples*4) // 4 bytes per float32
 				for i := 0; i < totalSamples; i++ {
 					// 440Hz sine wave.
 					t := float64(frameIdx*samplesPerFrame+i/2) / float64(m.sampleRate)
@@ -128,13 +128,13 @@ func (m *mockAudioSourceWithData) generateAudio(ctx context.Context) {
 // and produces segments in response. It simulates real transcriber behavior by
 // emitting a segment after receiving a configurable number of frames.
 type segmentProducingTranscriber struct {
-	segCh             chan heimdall.Segment
-	connected         bool
-	closed            bool
-	mu                sync.Mutex
-	frameCount        int
-	framesPerSegment  int
-	segmentIndex      int
+	segCh            chan heimdall.Segment
+	connected        bool
+	closed           bool
+	mu               sync.Mutex
+	frameCount       int
+	framesPerSegment int
+	segmentIndex     int
 }
 
 func newSegmentProducingTranscriber(framesPerSegment int) *segmentProducingTranscriber {

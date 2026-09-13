@@ -25,6 +25,30 @@ jobs:
       - name: Build (heimdall + heimdall-audio)
         run: make build
 
+      - name: go vet
+        run: go vet ./...
+
+      - name: gofmt check
+        run: |
+          unformatted=$(gofmt -l . | grep -v '^audio-helper/.build' || true)
+          if [ -n "$unformatted" ]; then
+            echo "The following files are not gofmt-formatted:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Install golangci-lint
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+
+      - name: Lint
+        # errcheck is intentionally excluded: this codebase deliberately
+        # leaves Close()/Remove() return values unchecked in cleanup/defer
+        # paths (the same accepted pattern as gosec G104 -- see
+        # .claude/KNOWN_ISSUES.md "Accepted gosec Findings"), and errcheck's
+        # default settings flag every one of those as an error with no way
+        # to scope the exclusion to just that pattern without a config file.
+        run: golangci-lint run --disable errcheck ./...
+
       - name: Test (race)
         run: go test ./... -race -count=1
 

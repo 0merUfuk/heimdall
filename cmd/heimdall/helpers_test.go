@@ -268,8 +268,8 @@ func TestValidateClaudeModel(t *testing.T) {
 		{"claude-sonnet-4-5", false},
 		{"claude-sonnet-4-6", false},
 		{"claude-opus-4-5", false},
-		{"gpt-4o", true},  // not a Claude model
-		{"", true},        // empty is unknown
+		{"gpt-4o", true},   // not a Claude model
+		{"", true},         // empty is unknown
 		{"claude-3", true}, // old naming, not in known set
 	}
 

@@ -225,8 +225,7 @@ func runRecord(cmd *cobra.Command, args []string) error {
 	fmt.Println("Warning: Recording active -- ensure all participants have consented to recording.")
 
 	// Stage 1: Create audio sources.
-	var systemSource audio.AudioSource
-	systemSource = audio.NewSystemAudioSource("")
+	systemSource := audio.NewSystemAudioSource("")
 	micSource := audio.NewMicrophoneSource()
 
 	// Stage 3: Create the transcriber via the factory. Deepgram is the

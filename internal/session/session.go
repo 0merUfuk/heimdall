@@ -404,8 +404,8 @@ func newSilentSource(sampleRate, channels int) *silentSource {
 	}
 }
 
-func (s *silentSource) Start(_ context.Context) error          { return nil }
-func (s *silentSource) Stream() <-chan heimdall.AudioFrame      { return s.frameCh }
-func (s *silentSource) Stop() error                             { return nil }
-func (s *silentSource) SampleRate() int                         { return s.sampleRate }
-func (s *silentSource) Channels() int                           { return s.channels }
+func (s *silentSource) Start(_ context.Context) error      { return nil }
+func (s *silentSource) Stream() <-chan heimdall.AudioFrame { return s.frameCh }
+func (s *silentSource) Stop() error                        { return nil }
+func (s *silentSource) SampleRate() int                    { return s.sampleRate }
+func (s *silentSource) Channels() int                      { return s.channels }

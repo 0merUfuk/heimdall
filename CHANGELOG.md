@@ -3,6 +3,7 @@
 ## v0.1.0 (Unreleased)
 
 ### Added
+- CI now runs `go vet`, a `gofmt -l` check, and `golangci-lint` (with `errcheck` deliberately excluded -- see the workflow file's comment) on every push/PR. `make lint` mirrors the same three checks locally. Previously `make lint` existed as a Makefile target but nothing ever invoked it in CI.
 - SonioxTranscriber scaffolding behind the existing `Transcriber` interface, with `SonioxConfig` (env-var resolution + secret masking) and the `transcriber.NewFromName(name, dgCfg, snxCfg)` provider factory. Deepgram remains the default; opt-in via the new `--transcriber soniox` flag on `heimdall record` once `SONIOX_API_KEY` is configured. `heimdall doctor` now reports Soniox API-key status (`[pass]` when set, `[info]` when unset — opt-in, so absence is not a failure). Validation spike (TR+EN WER + streaming latency measurement) is a separate manual operator task per AD-011 Phase 2 (PRs #26, #27).
 - First-run recording-consent banner with persistent acknowledgement, plus `--consent-acknowledged` flag for non-interactive scripts/CI (PR #24).
 - `heimdall doctor` Screen Recording permission preflight via `audio-helper --check-permissions` (PR #24).
@@ -29,6 +30,8 @@
 - Lock `mip_opt_out=true` invariant on the Deepgram WebSocket URL via test assertions so a regression cannot silently re-enable model-training retention (PR #21).
 
 ### Fixed
+- Cleared the 60 pre-existing `golangci-lint` findings not already covered by an accepted-exception entry: 8 `staticcheck` issues (capitalized error strings, redundant type declarations, `WriteString(fmt.Sprintf(...))` instead of `fmt.Fprintf`) and 2 genuinely-dead constants in `internal/mixer` (`systemSamplesPerFrame`, `sourceReadTimeout` -- unlike `ring_buffer.go`, which stays as documented accepted debt, these had no corresponding logic anywhere and no rationale to keep). The remaining 50 findings were all `errcheck` on `Close()`/`Remove()` in cleanup paths -- the same already-accepted pattern as gosec G104, not new problems.
+- gofmt drift across `cmd/heimdall/helpers_test.go`, `cmd/heimdall/secrets.go`, `internal/analyzer/claude.go`, `internal/mixer/mixer.go`, `internal/session/session.go`, `internal/session/session_integration_test.go`, `internal/transcriber/soniox.go`.
 - Soniox: log dropped transcript segments (speaker, timestamp, truncated text) instead of discarding them silently when the output channel is full; the drop stays non-blocking but is now observable (PR #27).
 - Soniox: scope the `--language` config fallback to the active provider so a `deepgram.language` config value no longer bleeds into a `--transcriber soniox` session (and vice versa) (PR #27).
 - Soniox: disable `enable_language_identification` for monolingual sessions; the flag is only set for the multi/auto TR+EN code-switched path (PR #27).

@@ -218,9 +218,9 @@ func (c *ClaudeAnalyzer) callAPI(ctx context.Context, model, userPrompt string) 
 	if resp.StatusCode != http.StatusOK {
 		var apiErr apiErrorResponse
 		if json.Unmarshal(respBody, &apiErr) == nil && apiErr.Error.Message != "" {
-			return "", fmt.Errorf("Anthropic API error (status %d): %s: %s", resp.StatusCode, apiErr.Error.Type, apiErr.Error.Message)
+			return "", fmt.Errorf("anthropic API error (status %d): %s: %s", resp.StatusCode, apiErr.Error.Type, apiErr.Error.Message)
 		}
-		return "", fmt.Errorf("Anthropic API error (status %d): %s", resp.StatusCode, string(respBody))
+		return "", fmt.Errorf("anthropic API error (status %d): %s", resp.StatusCode, string(respBody))
 	}
 
 	var apiResp apiResponse
@@ -240,9 +240,9 @@ func (c *ClaudeAnalyzer) callAPI(ctx context.Context, model, userPrompt string) 
 
 // analysisResult is the JSON structure returned by Claude's analysis.
 type analysisResult struct {
-	SpeakerMap  map[string]string `json:"speaker_map"`
-	Summary     string            `json:"summary"`
-	Decisions   []struct {
+	SpeakerMap map[string]string `json:"speaker_map"`
+	Summary    string            `json:"summary"`
+	Decisions  []struct {
 		Description string `json:"description"`
 		DecidedBy   string `json:"decided_by"`
 	} `json:"decisions"`
