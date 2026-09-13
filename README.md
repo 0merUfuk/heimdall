@@ -16,7 +16,7 @@ Named after the Norse god who could hear grass growing.
 ## Requirements
 
 - macOS 14.2+ (required for Core Audio Taps system audio capture)
-- Go 1.24+
+- Go 1.27+
 - Deepgram API key ([get one free](https://console.deepgram.com/))
 - Anthropic API key (optional -- required for meeting analysis)
 
@@ -101,7 +101,7 @@ Manage configuration.
 ```bash
 heimdall config init                              # Interactive setup
 heimdall config get obsidian.vault_path           # Get a value
-heimdall config set claude.model claude-sonnet-4-6 # Set a value
+heimdall config set claude.model claude-sonnet-5   # Set a value
 ```
 
 ### `heimdall recover`
