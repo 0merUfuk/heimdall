@@ -11,6 +11,7 @@ Named after the Norse god who could hear grass growing.
 - Optional fully-offline path: `--save-audio` to capture raw audio, `heimdall transcribe` to transcribe it locally via Whisper -- no cloud, no API key, no per-meeting cost
 - Post-meeting analysis via Claude (API key or a local Claude Code login -- `--analyzer claude-code`) -- summary, decisions, action items, speaker identification
 - Writes Obsidian-native markdown with YAML frontmatter, wikilinks, and collapsible transcript
+- `heimdall mcp` exposes your meeting history to Claude Desktop, Claude Code, Cursor, or any MCP client -- ask "what did we decide about the API migration?" and get an answer sourced from your vault
 - Crash recovery -- periodic temp file saves, recover interrupted sessions
 - Graceful degradation -- Claude fails? Raw transcript. Deepgram fails? Raw audio saved.
 
@@ -161,6 +162,31 @@ heimdall eval
 heimdall eval --analyzer claude-code
 heimdall eval --judge --json
 ```
+
+### `heimdall mcp`
+
+Runs a local [MCP](https://modelcontextprotocol.io) server over stdio, exposing your Obsidian vault's meeting notes to any MCP client as three read-only tools:
+
+| Tool | Purpose |
+|------|---------|
+| `list_meetings` | List past meetings, most recent first |
+| `search_meetings` | Full-text search across all meeting notes |
+| `get_meeting` | Get one meeting's full content (summary, decisions, action items, transcript) |
+
+Runs entirely locally -- no network access, no data leaves your machine beyond what your MCP client itself does with the results. Add to Claude Desktop's config (`claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "heimdall": {
+      "command": "heimdall",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Not a background daemon -- your MCP client starts and stops it as part of managing the connection.
 
 ### `heimdall version`
 
