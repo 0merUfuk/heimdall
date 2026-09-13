@@ -96,7 +96,71 @@
 
 **Consequences**: Zero-flag daily workflow for the common case. Config schema extended; existing configs without `profiles:` continue to work.
 
-### ID-005: MCP server -- official SDK over hand-rolling, IsError over Go errors for tool-level failures
+### ID-005: ClaudeCodeAnalyzer -- subprocess backend as a second Analyzer implementation
+
+**Date**: 2026-09-13
+
+**Context**: The only `Analyzer` implementation (`ClaudeAnalyzer`) requires `ANTHROPIC_API_KEY` and bills per token. A user who already pays for a Claude subscription (Pro/Max/Team) and has Claude Code installed has no way to reuse that access for meeting analysis -- they'd need a second, separate credential and a second bill.
+
+**Decision**: Added `ClaudeCodeAnalyzer` (`internal/analyzer/claudecode.go`), selected via `--analyzer claude-code` (default remains `api`). It shells out to the user's own `claude` binary in non-interactive print mode: `claude -p --bare --restricted --permission-prompts none --output-format json --system-prompt <systemPrompt>`, piping the transcript over stdin (not argv, to avoid any risk of OS argument-length limits on long meetings) and parsing the `{"result": ..., "is_error": ...}` JSON envelope. `--bare` skips hook/CLAUDE.md/plugin discovery so a meeting transcript can't pick up unrelated project context; `--restricted` plus `--permission-prompts none` remove tool-execution surface entirely, since this is a pure text-in/JSON-out completion with no legitimate reason to invoke a tool. heimdall never sees or handles the user's Claude credential -- it only asks an already-authenticated local process to run once and exit.
+
+The retry/backoff/parse/fallback orchestration (V-009) was extracted out of `ClaudeAnalyzer.Summarize` into a shared `summarizeWithRetry(ctx, segments, opts, callOnce)` helper so both backends share identical failure-degradation behavior; each backend only supplies its own `callOnce` closure (HTTP call vs. subprocess call). `buildUserPrompt`, `systemPrompt`, and the response parser (`parseAnalysisResponse`) were already backend-agnostic and needed no changes.
+
+**Consequences**:
+- `Analyzer` now has two implementations selectable via `analyzer.NewFromName(name, apiKey)`, mirroring `transcriber.NewFromName`'s provider-factory pattern.
+- Model selection differs by design: the `api` backend falls back to the package `DefaultModel` when unset; `claude-code` leaves `--model` unset when `opts.Model == ""` so it defers to the user's own Claude Code default rather than forcing a specific model choice onto their already-configured setup.
+- `config.Validate()`'s Claude-model check was loosened from an exact-enum allowlist (which had already gone stale twice in this project's history) to a `"claude-..."` shape check, and `claude.api_key` is only required when `claude.analyzer != "claude-code"`.
+- `doctor` now reports `claude` CLI availability and only fails its Claude-analysis check when *neither* `ANTHROPIC_API_KEY` nor a working `claude` CLI is present.
+- Not yet covered: a live end-to-end test against a real authenticated `claude` CLI (the sandbox this was built in has no logged-in session to test against) -- unit tests cover the subprocess contract via an injectable `commandRunner`, verified empirically against the real CLI's JSON envelope shape, but a first real run should be smoke-tested by a user with an active Claude Code login.
+
+### ID-006: `internal/eval` -- deterministic golden-fixture checks as the primary quality signal, LLM-as-judge as opt-in supplement
+
+**Date**: 2026-09-13
+
+**Context**: heimdall had no measurement of Analyze-stage *output quality* at all -- `internal/analyzer`'s tests are httptest-mocked (per `.claude/rules/go-net-http-services.md`'s "tests use mocks, not real external services" rule) and only prove JSON-parsing plumbing works, never whether a real model call produces a faithful, complete, non-hallucinated, correctly-localized note.
+
+**Decision**: Built `internal/eval` around seven hand-written golden transcripts (`fixtures.go`) with *minimum-bar* ground truth (minimum decision/action-item counts, forbidden strings, language markers) rather than exact-match golden outputs -- LLM prose varies run to run even at fixed settings, so exact-string goldens would be permanently flaky. Ten deterministic checks (`checks.go`) run for free against every fixture's output: coverage floors, anti-hallucination on both "should be empty" and "names must be traceable to the transcript" axes, prompt-injection-leak detection (V-014), and a crude multilingual marker check. These gate the `heimdall eval` command's exit code. A separate, explicitly opt-in LLM-as-judge layer (`judge.go`, `--judge` flag) asks `claude-sonnet-5` to score faithfulness/coverage 0-10 for nuance the deterministic layer can't capture -- this costs real tokens and never affects the exit code, so it can't turn a CI job flaky or expensive by accident.
+
+Chose plain Go over a dedicated Python eval framework (promptfoo/deepeval/ragas/...): heimdall is a deliberately lean, few-dependency Go binary (`docs/GRILL_REPORT.md`'s "Meta-Engineering ROI" finding specifically flagged process-proportionality as a past failure mode of this project), and a second language/dependency tree/CI runner to grade output the `heimdall` binary already parses would repeat that mistake. `internal/eval` reuses `analyzer.Analyzer` directly and ships in the same binary.
+
+**Consequences**:
+- `heimdall eval` / `make eval` exist as a real regression harness: a maintainer can run it before tagging a release and get an immediate pass/fail plus per-check detail.
+- The judge layer is deliberately NOT wired into the public CI workflow (`.github/workflows/ci.yml` has no secrets configured) -- provisioning `ANTHROPIC_API_KEY` as a repo secret for CI-gated judging is a decision left to the maintainer, not defaulted silently into a public workflow.
+- Not yet covered: the suite has never been run against a real model (no live credentials in the build sandbox) -- see `docs/EVALUATION.md`'s "Known limitation" section. The first real `heimdall eval` run is the actual quality baseline, not this entry's design intent.
+
+### ID-007: Raw-audio recording as a session-level tap, not a Transcriber
+
+**Date**: 2026-09-13
+
+**Context**: `audio.save_recording` / `audio.recording_path` have existed in the config schema (and README's documented example) since the original MVP spec, but nothing ever read them -- `heimdall record` silently ignored the setting. Separately, while investigating this for a planned local-transcription (Whisper) feature, the `Transcriber` interface (`Connect/Send/Receive/Close`) turned out to be the wrong integration point for anything that transcribes in *batch* rather than streaming: `session.go`'s shutdown sequence (`Stop()`) budgets 30 seconds for `Close()` before `record.go` gives up and logs a timeout warning -- sized for "send CloseStream, wait briefly for final results," not "run a whole local transcription pass over a 1-hour recording." Forcing a batch transcriber through that interface risked silently producing an empty or truncated transcript on any real meeting, which is the same failure class as the project's own historical Bug #1 (empty transcription from a diarize/multichannel conflict, see GRILL_REPORT.md).
+
+**Decision**: Implemented raw-audio saving first, as its own concern, decoupled from transcription entirely. `internal/recording` (`wav.go`) is a minimal, dependency-free 16-bit PCM WAV writer. `MeetingSession` gained a second callback, `OnAudioFrame`, mirroring the existing `OnSegment` pattern exactly -- called from `audioToTranscriber()` with the pre-downmix stereo frame (the mixer's documented 16kHz-stereo output, L=system/R=mic per AD-007) before it's converted for the transcriber. `record.go` wires a `WAVWriter` into that hook when `--save-audio` or `audio.save_recording: true` is set. `session.go` itself stays ignorant of what a caller does with the tapped frame -- persistence policy lives entirely in `cmd/heimdall`, matching the existing separation where `session` only knows "here is a frame/segment."
+
+While building this, a filename bug surfaced: `internal/recovery.sanitizeTitle` still used the pre-V-017 `[^a-zA-Z0-9]+` pattern that strips Turkish characters, even though `internal/output.sanitizeFilename` was fixed to `[^\p{L}\p{N}-]+` back in the 31-bug sweep -- the two copies had drifted, so a Turkish meeting title produced a correct `.md` note filename but a mangled `.json` recovery filename. Consolidated both into one shared `heimdall.SanitizeFilename(title, fallback)`; `internal/recording` uses the same function for WAV filenames.
+
+**Consequences**:
+- `audio.save_recording` / `audio.recording_path` / `--save-audio` are now real, tested behavior instead of a documented no-op.
+- Local Whisper transcription now has a clear, correct integration point to build against: a *separate* `heimdall transcribe --file <wav>` batch command operating on these saved WAV files, decoupled from the live `record` session's real-time shutdown budget -- not a new `Transcriber` implementation wired into `record --transcriber whisper`. This also naturally reuses `internal/recovery`'s JSON format as the hand-off into the existing `heimdall analyze` command, so a local-Whisper transcript flows through the same downstream path a Deepgram/Soniox transcript does. Implemented immediately after this decision -- see ID-008.
+- `internal/recovery` and `internal/output` no longer maintain parallel copies of filename sanitization; a future fix to one applies to both automatically.
+
+### ID-008: `heimdall transcribe` -- whisper.cpp's built-in `--diarize`, verified empirically before writing the parser
+
+**Date**: 2026-09-13
+
+**Context**: ID-007 set up raw-audio recording specifically so local transcription would have a clean, decoupled integration point. Two open questions before implementing it: (1) whisper.cpp has no native N-speaker diarization -- would heimdall need to hand-roll channel-splitting (transcribe the L=system and R=mic channels of the saved WAV separately, then merge by timestamp) to get any speaker separation at all? (2) what is whisper.cpp's actual `--output-json` schema, and is its exit code a reliable success signal? Neither was safe to guess: an invented JSON schema risks silently producing an empty or garbled transcript, the same failure class as this project's own historical Bug #1.
+
+**Decision**: Installed `whisper.cpp` via Homebrew (`brew install whisper-cpp` -- note the formula was renamed from `whisper-cpp` to `whisper.cpp`, though the binary is still `whisper-cli`) and empirically verified both questions against the real binary (v1.9.4) before writing any parsing code:
+
+1. **Diarization**: `whisper-cli --help` revealed a built-in `-di, --diarize` ("stereo audio diarization") flag -- whisper.cpp already does exactly the channel-based speaker separation that was about to be hand-rolled. No channel-splitting code needed; `heimdall transcribe` always passes `--diarize` against the stereo WAV directly.
+2. **JSON schema and exit-code reliability**: generated synthetic stereo speech with macOS `say` (two mono clips, one per speaker, merged via `ffmpeg`'s `join` filter) and ran `whisper-cli -m ggml-tiny.bin -f stereo.wav --diarize --output-json` for real. Confirmed the actual schema: `{"transcription": [{"offsets": {"from": <ms>, "to": <ms>}, "text": " ...", "speaker": "0"}, ...]}` (`text` carries a leading space -- a BPE tokenization artifact, trimmed on parse). Then separately ran it against a nonexistent model path: **whisper-cli exited 0 and wrote no output JSON file at all** -- exit code is not a usable success signal. `internal/localstt.Client.TranscribeFile` checks for the output file's existence, not the subprocess's exit status.
+
+**Consequences**:
+- `internal/localstt` (`whisper.go`) shells out to `whisper-cli` in batch mode, mirroring `analyzer.ClaudeCodeAnalyzer`'s injectable-`commandRunner` testability pattern. Unit tests use the real, captured JSON fixture verbatim (not a guessed schema) via `realWhisperCLIOutputFixture`.
+- `heimdall transcribe --file <wav>` was additionally smoke-tested end-to-end against the real `whisper-cli` binary and a real (tiny) model during development -- not just mocked unit tests -- confirming the full chain (subprocess invocation -> JSON parse -> `heimdall.Segment`s -> `recovery.RecoveryFile` write) produces a valid, `heimdall analyze`-consumable transcript.
+- Speaker separation from `heimdall transcribe` is two-party only (system audio vs. microphone, i.e. "everyone else on the call" vs. "you") -- not per-individual diarization the way Deepgram/Soniox's voice-fingerprint diarization is for multi-participant calls. Documented as a known limitation in README and the command's own `--help` text, not glossed over.
+- New `heimdall model download <size>` command and `internal/localstt.ModelDownloadURL`/`ResolveModelPath` establish `~/.heimdall/models/ggml-<size>.bin` as the model-storage convention, mirroring `~/.heimdall/{recovery,recordings}/`.
+
+### ID-009: MCP server -- official SDK over hand-rolling, IsError over Go errors for tool-level failures
 
 **Date**: 2026-09-13
 
@@ -111,4 +175,4 @@
 **Consequences**:
 - Real, protocol-level verification exists for this feature at two levels: `internal/mcpserver`'s tests connect a real MCP client to the server over the SDK's in-memory transport (exercising actual JSON-RPC, not just Go function calls); development also included a manual smoke test driving the real `heimdall mcp` stdio binary with a hand-built JSON-RPC request sequence, which is what caught two real bugs no unit test could have (see CHANGELOG's Added entry for this feature) -- `heimdall mcp` originally required `DEEPGRAM_API_KEY`/`ANTHROPIC_API_KEY` to even start (it resolved the whole config instead of just the one field it needs), and a normal client disconnect was reported as a fatal error with exit code 1.
 - `internal/vault`'s search is a plain case-insensitive substring match over note content, not an index -- fine at the scale of one person's meeting history (hundreds to low thousands of notes), not designed to scale further. If that ever matters, it's a contained change inside one package, not a protocol-level one.
-- This PR's `.claude/DECISIONS.md` diff was written against `main` directly (not stacked on the session's other PRs, which independently claim ID-005 through ID-008 on their own branches) -- whichever of these merges second will hit a trivial renumbering conflict on this file, not a real content conflict.
+- This entry was originally drafted as ID-005 (written against `main` directly, not stacked on the session's other PRs that independently claimed ID-005 through ID-008 on their own branches); renumbered to ID-009 during merge to resolve the collision -- a trivial renumbering, not a content conflict, exactly as anticipated when this was written.

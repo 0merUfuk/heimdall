@@ -90,7 +90,7 @@ func TestTranscriber_ReceiveIsReadOnly(t *testing.T) {
 
 	ch := tr.Receive()
 	// The interface signature is <-chan heimdall.Segment — this assignment is a compile-time check.
-	var roCh <-chan heimdall.Segment = ch
+	roCh := ch
 	if roCh == nil {
 		t.Fatal("receive channel should not be nil")
 	}

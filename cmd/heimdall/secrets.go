@@ -26,7 +26,7 @@ func isSecretKey(key string) bool {
 //   - Empty string        → "" (nothing to leak).
 //   - ${VAR} placeholder  → passthrough verbatim (not a secret; it's a ref).
 //   - Shorter than 12     → fully masked as "********" (too short to safely
-//                            reveal any suffix without leaking most of the key).
+//     reveal any suffix without leaking most of the key).
 //   - Anthropic prefix    → first 7 chars + "..." + last 4 (e.g., "sk-ant-****...abc3").
 //     The 7-char anchor preserves the "sk-ant-" prefix plus one extra character
 //     so operators can confirm the key family at a glance.

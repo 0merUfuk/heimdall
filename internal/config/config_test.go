@@ -500,6 +500,48 @@ func TestValidate_EmptyClaudeAPIKey(t *testing.T) {
 	}
 }
 
+// TestValidate_ClaudeCodeAnalyzerSkipsAPIKeyRequirement verifies that
+// claude.analyzer: claude-code does not require claude.api_key -- that
+// backend shells out to a local `claude` login instead (ID-005).
+func TestValidate_ClaudeCodeAnalyzerSkipsAPIKeyRequirement(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Obsidian.VaultPath = "/tmp/vault"
+	cfg.Claude.APIKey = ""
+	cfg.Claude.Analyzer = "claude-code"
+
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate: expected no error with claude-code analyzer and empty api_key, got: %v", err)
+	}
+}
+
+// TestValidate_InvalidAnalyzer catches an unknown claude.analyzer value.
+func TestValidate_InvalidAnalyzer(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Obsidian.VaultPath = "/tmp/vault"
+	cfg.Claude.Analyzer = "chatgpt"
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate: expected error for unknown analyzer, got nil")
+	}
+	if !strings.Contains(err.Error(), "claude.analyzer") {
+		t.Errorf("error should mention claude.analyzer, got: %v", err)
+	}
+}
+
+// TestValidate_CurrentClaudeModelAccepted verifies that a real current model
+// id (not present in the old hardcoded allowlist) passes validation -- this
+// project's own history shows that allowlist going stale twice already.
+func TestValidate_CurrentClaudeModelAccepted(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Obsidian.VaultPath = "/tmp/vault"
+	cfg.Claude.Model = "claude-sonnet-5"
+
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate: expected claude-sonnet-5 to be accepted, got: %v", err)
+	}
+}
+
 // TestValidate_EmptyOutputLanguage catches an empty output language.
 func TestValidate_EmptyOutputLanguage(t *testing.T) {
 	cfg := DefaultConfig()

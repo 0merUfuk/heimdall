@@ -79,12 +79,12 @@ type sonioxToken struct {
 // batch of tokens plus metadata. When `Finished` is true this is the final
 // frame before the server closes the connection.
 type sonioxResponse struct {
-	Tokens            []sonioxToken `json:"tokens"`
-	FinalAudioProcMS  int64         `json:"final_audio_proc_ms,omitempty"`
-	TotalAudioProcMS  int64         `json:"total_audio_proc_ms,omitempty"`
-	Finished          bool          `json:"finished,omitempty"`
-	ErrorCode         int           `json:"error_code,omitempty"`
-	ErrorMessage      string        `json:"error_message,omitempty"`
+	Tokens           []sonioxToken `json:"tokens"`
+	FinalAudioProcMS int64         `json:"final_audio_proc_ms,omitempty"`
+	TotalAudioProcMS int64         `json:"total_audio_proc_ms,omitempty"`
+	Finished         bool          `json:"finished,omitempty"`
+	ErrorCode        int           `json:"error_code,omitempty"`
+	ErrorMessage     string        `json:"error_message,omitempty"`
 }
 
 // sonioxSessionConfig mirrors the subset of config.SonioxConfig that this
