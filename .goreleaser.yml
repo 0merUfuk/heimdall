@@ -54,6 +54,11 @@ checksum:
 # without it, Gatekeeper blocks first launch. Revisit once signing is set up.
 homebrew_casks:
   - name: heimdall
+    # Gracefully no-op until the one-time setup above is done, instead of
+    # failing the whole release: an unset HOMEBREW_TAP_TOKEN means the tap
+    # repo/secret aren't provisioned yet. GoReleaser still writes the cask
+    # file under dist/homebrew/ either way -- just doesn't try to push it.
+    skip_upload: '{{ if index .Env "HOMEBREW_TAP_TOKEN" }}false{{ else }}true{{ end }}'
     binaries:
       - heimdall
       - heimdall-audio
