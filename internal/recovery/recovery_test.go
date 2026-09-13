@@ -430,20 +430,29 @@ func TestListRecoveryFiles_MissingDir(t *testing.T) {
 	}
 }
 
-// TestSanitizeTitle verifies title sanitization for filenames.
+// TestSanitizeTitle verifies title sanitization for filenames. sanitizeTitle
+// is now a thin wrapper over the shared heimdall.SanitizeFilename (see that
+// function's doc comment) -- expectations here match
+// internal/output/renderer_test.go's TestSanitizeFilename for the same kind
+// of input, since both packages call the same underlying logic.
 func TestSanitizeTitle(t *testing.T) {
 	tests := []struct {
 		input string
 		want  string
 	}{
 		{"Sprint Planning", "sprint-planning"},
-		{"1:1 with Sarah", "1-1-with-sarah"},
+		{"1:1 with Sarah", "11-with-sarah"},
 		{"  spaces  ", "spaces"},
 		{"UPPER-case", "upper-case"},
-		{"special!@#$chars", "special-chars"},
+		{"special!@#$chars", "specialchars"},
 		{"", "untitled"},
 		{"---", "untitled"},
 		{"multi   space   title", "multi-space-title"},
+		// Turkish characters must be preserved, not stripped -- this
+		// regressed when recovery.go kept its own [^a-zA-Z0-9]+ copy after
+		// output/renderer.go was fixed for V-017; both now share one
+		// Unicode-aware implementation.
+		{"Sağlık Toplantısı", "sağlık-toplantısı"},
 	}
 
 	for _, tt := range tests {

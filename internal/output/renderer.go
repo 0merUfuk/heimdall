@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"text/template"
 	"time"
@@ -64,13 +63,6 @@ func speakerName(speaker int, speakerMap map[int]string) string {
 // maxCollisionAttempts limits the number of filename collision checks to prevent
 // infinite loops in pathological cases.
 const maxCollisionAttempts = 1000
-
-// sanitizePattern matches characters that are not Unicode letters, digits, or hyphens.
-// Uses \p{L} to preserve non-ASCII letters (e.g., Turkish ç,ğ,ı,ö,ş,ü).
-var sanitizePattern = regexp.MustCompile(`[^\p{L}\p{N}-]+`)
-
-// multiHyphenPattern matches consecutive hyphens.
-var multiHyphenPattern = regexp.MustCompile(`-{2,}`)
 
 // NewObsidianWriter creates a new ObsidianWriter that writes to the given vault.
 //
@@ -207,20 +199,10 @@ func parseTemplate(templatePath string) (*template.Template, error) {
 }
 
 // sanitizeFilename converts a meeting title to a filesystem-safe filename.
-// Rules: lowercase, spaces to hyphens, remove special characters,
-// collapse multiple hyphens, trim leading/trailing hyphens.
-// Falls back to "meeting" if the result is empty after sanitization.
+// Thin wrapper over heimdall.SanitizeFilename (the shared implementation --
+// see its doc comment) with this package's "meeting" fallback.
 func sanitizeFilename(title string) string {
-	s := strings.ToLower(strings.TrimSpace(title))
-	s = strings.ReplaceAll(s, " ", "-")
-	s = sanitizePattern.ReplaceAllString(s, "")
-	s = multiHyphenPattern.ReplaceAllString(s, "-")
-	s = strings.Trim(s, "-")
-
-	if s == "" {
-		return "meeting"
-	}
-	return s
+	return heimdall.SanitizeFilename(title, "meeting")
 }
 
 // resolveCollision finds a non-colliding filename in the given directory.

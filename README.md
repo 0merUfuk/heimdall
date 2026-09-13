@@ -8,7 +8,8 @@ Named after the Norse god who could hear grass growing.
 
 - Captures system audio (remote participants) and microphone (your voice) simultaneously
 - Real-time transcription with speaker diarization via Deepgram Nova-3 (default), with Soniox as an opt-in alternative (`--transcriber soniox`)
-- Post-meeting analysis via Claude -- summary, decisions, action items, speaker identification
+- Optional fully-offline path: `--save-audio` to capture raw audio, `heimdall transcribe` to transcribe it locally via Whisper -- no cloud, no API key, no per-meeting cost
+- Post-meeting analysis via Claude (API key or a local Claude Code login -- `--analyzer claude-code`) -- summary, decisions, action items, speaker identification
 - Writes Obsidian-native markdown with YAML frontmatter, wikilinks, and collapsible transcript
 - Crash recovery -- periodic temp file saves, recover interrupted sessions
 - Graceful degradation -- Claude fails? Raw transcript. Deepgram fails? Raw audio saved.
@@ -82,6 +83,7 @@ heimdall record --title "Meeting" --analyzer claude-code
 | `--analyzer` | Meeting-analysis backend: `api` (default, needs `ANTHROPIC_API_KEY`) or `claude-code` (shells out to a local, logged-in `claude` CLI -- no API key needed) |
 | `--profile` | Use a named meeting profile from config (loads title, language, participants, keywords); explicit flags override profile values |
 | `--consent-acknowledged` | Acknowledge the recording-consent banner non-interactively (scripts/CI; does not persist to config) |
+| `--save-audio` | Save the raw mixed audio (16kHz stereo WAV, L=system/R=mic) to `audio.recording_path`; does not persist to config. Graceful-degradation backup -- if the transcriber and analyzer both fail, the meeting audio is still on disk. Same effect as setting `audio.save_recording: true` |
 
 #### Analysis backends
 
@@ -130,6 +132,26 @@ heimdall analyze --file ~/.heimdall/recovery/2026-03-28T14-30-00-sprint-planning
 heimdall analyze --file ~/.heimdall/recovery/2026-03-28T14-30-00-sprint-planning.json --analyzer claude-code
 ```
 
+### `heimdall transcribe`
+
+Transcribe a saved audio file locally via [Whisper](https://github.com/ggml-org/whisper.cpp) -- fully offline, no API key, no cloud, no per-meeting cost. Pairs with `--save-audio`: record without any transcription provider, transcribe later on your own schedule.
+
+```bash
+heimdall record --save-audio --transcriber deepgram   # or skip cloud STT entirely and just save audio
+heimdall transcribe --file ~/.heimdall/recordings/2026-09-13T10-00-00-standup.wav
+heimdall transcribe --file meeting.wav --model small --language tr
+```
+
+Requires the `whisper-cli` binary (`brew install whisper-cpp`) and a downloaded model (`heimdall model download base`). Always passes whisper.cpp's built-in `--diarize` (stereo-channel diarization), separating system audio (remote participants) from your microphone -- a real but coarse two-party split, not per-individual diarization like Deepgram/Soniox. Writes output in the same format as crash recovery, so `heimdall analyze --file <path>` picks it up directly.
+
+### `heimdall model download <size>`
+
+Downloads a Whisper model (`tiny`, `base`, `small`, `medium`, `large`) to `~/.heimdall/models/` for use with `heimdall transcribe`.
+
+```bash
+heimdall model download base
+```
+
 ### `heimdall eval`
 
 Run the meeting-analysis quality suite against seven golden transcripts, checking coverage, anti-hallucination, prompt-injection resistance, and multilingual consistency. Add `--judge` for LLM-as-judge faithfulness/coverage scoring. See [docs/EVALUATION.md](docs/EVALUATION.md).
@@ -167,7 +189,7 @@ obsidian:
 audio:
   system_audio: true
   microphone: true
-  save_recording: false
+  save_recording: false            # true (or --save-audio) saves raw meeting audio as WAV
   recording_path: ~/.heimdall/recordings/
 
 output:
@@ -251,6 +273,7 @@ heimdall sends meeting data to two external services:
 | Meeting transcript | Anthropic (US) via HTTPS | 7 days (API policy) | Never (API data excluded) |
 | Meeting notes | Your local Obsidian vault | You control | N/A |
 | Recovery files | `~/.heimdall/recovery/` (local) | Until cleanup | N/A |
+| Raw audio recording (opt-in, `--save-audio`) | `~/.heimdall/recordings/` (local) | Until you delete it | N/A |
 
 heimdall does not store audio or transcripts on any server it controls. API keys are stored as environment variable references, never in plaintext config files.
 
