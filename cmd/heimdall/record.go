@@ -32,6 +32,7 @@ var (
 	recordKeywords            string
 	recordProfile             string
 	recordTranscriber         string
+	recordAnalyzer            string
 	recordConsentAcknowledged bool
 )
 
@@ -47,11 +48,18 @@ Press Ctrl+C to stop recording.
 
 Requires the selected transcriber's API key:
   - DEEPGRAM_API_KEY (default)
-  - SONIOX_API_KEY   (with --transcriber soniox)`,
+  - SONIOX_API_KEY   (with --transcriber soniox)
+
+Post-meeting analysis (summary, decisions, action items) uses the selected
+--analyzer:
+  - api         (default) calls the Anthropic API directly; needs ANTHROPIC_API_KEY
+  - claude-code shells out to a local, already-logged-in 'claude' CLI --
+                no separate API key, uses your existing Claude subscription`,
 	Example: `  heimdall record                                 # auto-title, config defaults
   heimdall record --profile daily                  # use "daily" profile
   heimdall record --title "Sprint Planning"        # custom title
-  heimdall record --profile 1on1 --title "Special" # profile + override`,
+  heimdall record --profile 1on1 --title "Special" # profile + override
+  heimdall record --analyzer claude-code           # analyze via local Claude Code login, no API key`,
 	RunE: runRecord,
 }
 
@@ -62,6 +70,7 @@ func init() {
 	recordCmd.Flags().StringVar(&recordKeywords, "keywords", "", "comma-separated list of context keywords for analysis (Deepgram only; ignored for Soniox)")
 	recordCmd.Flags().StringVar(&recordProfile, "profile", "", "meeting profile name (from config)")
 	recordCmd.Flags().StringVar(&recordTranscriber, "transcriber", "deepgram", "transcription provider: deepgram (default) or soniox")
+	recordCmd.Flags().StringVar(&recordAnalyzer, "analyzer", "api", "meeting-analysis backend: api (default, needs ANTHROPIC_API_KEY) or claude-code (uses a local `claude` login, no API key needed)")
 	recordCmd.Flags().BoolVar(&recordConsentAcknowledged, "consent-acknowledged", false,
 		"acknowledge the recording-consent banner non-interactively (for scripts/CI; does not persist to config)")
 	rootCmd.AddCommand(recordCmd)
@@ -75,6 +84,14 @@ func runRecord(cmd *cobra.Command, args []string) error {
 	default:
 		return fmt.Errorf("--transcriber %q is not valid: use %q (default) or %q",
 			recordTranscriber, transcriber.ProviderDeepgram, transcriber.ProviderSoniox)
+	}
+
+	// Validate --analyzer up front for the same fail-fast reason.
+	switch recordAnalyzer {
+	case "", analyzer.ProviderAPI, analyzer.ProviderClaudeCode:
+	default:
+		return fmt.Errorf("--analyzer %q is not valid: use %q (default) or %q",
+			recordAnalyzer, analyzer.ProviderAPI, analyzer.ProviderClaudeCode)
 	}
 
 	// Provider-specific API-key preflight. We do NOT require DEEPGRAM_API_KEY
@@ -188,6 +205,11 @@ func runRecord(cmd *cobra.Command, args []string) error {
 				recordLanguage = cfg.Deepgram.Language
 			}
 		}
+	}
+
+	// Config analyzer as default when the flag was not explicitly set.
+	if !cmd.Flags().Changed("analyzer") && cfg != nil && cfg.Claude.Analyzer != "" {
+		recordAnalyzer = cfg.Claude.Analyzer
 	}
 
 	// Auto-generate title if still empty.
@@ -337,28 +359,47 @@ func runRecord(cmd *cobra.Command, args []string) error {
 	// Print summary.
 	printSummary(sess)
 
-	// Stage 5: Analyze via Claude (if API key available).
+	// Stage 5: Analyze via Claude (API key or a local Claude Code login,
+	// depending on --analyzer).
 	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
-	if anthropicKey == "" && len(sess.Segments()) > 0 {
+	analysisAvailable := recordAnalyzer == analyzer.ProviderClaudeCode || anthropicKey != ""
+
+	if !analysisAvailable && len(sess.Segments()) > 0 {
 		fmt.Println()
 		fmt.Println("Note: ANTHROPIC_API_KEY not set -- Claude analysis skipped.")
 		fmt.Println("The raw transcript was displayed above but no meeting note was saved.")
 		fmt.Println("To enable analysis: export ANTHROPIC_API_KEY=your_key")
+		fmt.Println("  or reuse an existing Claude Code login: heimdall record --analyzer claude-code")
 		fmt.Println("To analyze this session later: heimdall recover")
 	}
-	if anthropicKey != "" && len(sess.Segments()) > 0 {
-		fmt.Println("Generating meeting summary via Claude...")
+	if analysisAvailable && len(sess.Segments()) > 0 {
+		if recordAnalyzer == analyzer.ProviderClaudeCode {
+			fmt.Println("Generating meeting summary via Claude Code (local login)...")
+		} else {
+			fmt.Println("Generating meeting summary via Claude...")
+		}
 
 		// Config was pre-loaded and validated before recording started.
 		// Reuse the same cfg variable to avoid loading config twice.
 
-		// Determine the Claude model: config value, then fallback to default.
-		model := analyzer.DefaultModel
+		// Determine the model: config value, then fallback to the package
+		// default -- but only for the API backend. claude-code leaves the
+		// model unset by default so it uses whatever the user's own `claude`
+		// install is configured for; an explicit config override still wins
+		// on either backend.
+		model := ""
 		if cfg != nil && cfg.Claude.Model != "" && !strings.HasPrefix(cfg.Claude.Model, "${") {
 			model = cfg.Claude.Model
 		}
+		if recordAnalyzer != analyzer.ProviderClaudeCode && model == "" {
+			model = analyzer.DefaultModel
+		}
 
-		claude := analyzer.NewClaudeAnalyzer(anthropicKey)
+		claude, err := analyzer.NewFromName(recordAnalyzer, anthropicKey)
+		if err != nil {
+			log.Printf("warning: %v", err)
+			return nil
+		}
 		analyzeOpts := heimdall.AnalyzeOpts{
 			Model:        model,
 			Language:     recordLanguage,
