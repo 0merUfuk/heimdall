@@ -1,6 +1,6 @@
-**Version**: 3.0
+**Version**: 4.0
 **Created**: 2026-03-28
-**Last Updated**: 2026-09-13
+**Last Updated**: 2026-09-14
 **Authors:** Omer Ufuk
 
 ---
@@ -15,24 +15,30 @@
 
 ## Open
 
-- **CI has been red on `main` since 2026-07-19** -- `govulncheck` flags 3 Go stdlib CVEs disclosed against go1.25.10 after it was pinned. Fix is ready in PR #29 (toolchain bump to 1.27.1) but not yet merged (see SERVICE_CONTEXT.md -- merge is an owner action, blocked by a harness permission classifier this session did not attempt to route around).
-- **No v0.1.0 tag exists** despite the v1.0 feature set being complete since 2026-04-22ish. Pre-tag gates are owner actions: real-voice smoke test, macOS signing decision, and now also merging PRs #29-32 (which include the CI fix -- tagging red-CI code would be worse than not tagging).
-- **`make lint` (`golangci-lint`) is never run in CI** -- only `make build`, `go test -race`, and `govulncheck` are wired into `.github/workflows/ci.yml`. Found 2026-09-13; not yet fixed. Pre-existing `gofmt` drift exists in `cmd/heimdall/helpers_test.go`, `cmd/heimdall/secrets.go`, `internal/mixer/mixer.go`, `internal/transcriber/soniox.go` -- none were touched by the 2026-09-13 PRs so they were left alone rather than scope-crept into unrelated changes.
-- **Token usage is parsed but discarded** -- `ClaudeAnalyzer.callAPI` (`internal/analyzer/claude.go`) unmarshals `usage.input_tokens`/`usage.output_tokens` from every Anthropic API response but never logs, stores, or surfaces them. No cost/latency observability exists for the one LLM stage in the pipeline. Found 2026-09-13; not yet fixed.
-- **`heimdall eval`'s quality baseline is still theoretical** -- the suite (PR #31) is unit-tested against scripted/mock analyzers but has never been run against a real model (the build sandbox had neither `ANTHROPIC_API_KEY` nor a logged-in `claude` CLI). The first real run is the actual baseline, not the design intent documented in `docs/EVALUATION.md`.
+- **Homebrew tap repo/token not yet created** -- `.goreleaser.yml`'s `homebrew_casks` config and `.github/workflows/release.yml` are live and v0.1.0's release ran successfully, but `github.com/0merUfuk/homebrew-heimdall` doesn't exist yet and no `HOMEBREW_TAP_TOKEN` secret is set. The release workflow correctly no-ops this step rather than failing (see "Resolved" below) -- but the tap itself is still an owner action (`docs/RELEASING.md` has the steps).
+- **`heimdall eval`'s quality baseline is still theoretical** -- the suite correctly detects and fails closed on degraded/fallback output (verified: 0/7 with the right root cause reported) but has never been run against a real model -- no sandbox credential was available this round either. The first real run is the actual baseline, not the design intent documented in `docs/EVALUATION.md`.
+- **No real live-meeting validation** -- everything through Whisper transcription + Claude analysis + Obsidian rendering was verified with a synthetic 2-speaker recording (real `say`+`ffmpeg` audio, real `whisper-cli`, real `claude` CLI graceful-degradation path) and a real downloaded-and-run release artifact, but an actual live meeting is the one thing that needs the owner physically present.
+- **macOS code-signing decision not made** -- binaries are unsigned/unnotarized; `docs/RELEASING.md` documents the `xattr` postflight-hook workaround in the interim. Needs an Apple Developer account, which only the owner can provision.
 
 ---
 
-## Resolved 2026-09-13 (four PRs, not yet merged to main -- see SERVICE_CONTEXT.md)
+## Resolved 2026-09-13/14 (11 PRs, #29-#41, merged to `main`; v0.1.0 tagged and released)
 
-- **CI toolchain CVEs** -- go1.25.10 -> 1.27.1 (PR #29).
-- **No way to analyze meetings without a separate paid API key** -- `ClaudeCodeAnalyzer` / `--analyzer claude-code` reuses an existing local Claude Code login (PR #30).
-- **Zero measurement of AI-output quality** -- `internal/eval` + `heimdall eval`: golden transcripts, coverage/anti-hallucination/prompt-injection/multilingual checks, optional LLM-as-judge (PR #31).
-- **`audio.save_recording` / `--save-audio` was a documented no-op** -- config field existed since the MVP spec, nothing read it. Now wired via `internal/recording` + `MeetingSession.OnAudioFrame` (PR #32).
-- **No local/offline transcription path** -- `heimdall transcribe` via `internal/localstt` (whisper-cli, batch mode) (PR #32). See "Known Limitations" below for what this does and doesn't do.
-- **Turkish characters stripped from crash-recovery filenames** -- `internal/recovery`'s filename sanitizer had its own copy of the pre-V-017 ASCII-only regex, never updated when `internal/output`'s was fixed. Consolidated into one shared `heimdall.SanitizeFilename` (PR #32).
-- **Stale Claude-model allowlist** -- `config.Validate()` rejected the real current model (`claude-sonnet-5`) while accepting a fictitious one (`claude-sonnet-4-6`) baked into a hardcoded enum. Replaced with a shape check (PR #30).
-- **Docs index (`docs/README.md`) stale since 2026-04-18** -- missing links to `PRODUCTIZATION.md`, `MONETIZATION_RESEARCH.md`, `DISTRIBUTION_RESEARCH.md`, `EVALUATION.md`, all of which already existed unlinked or were newly added (PR #31).
+- **CI toolchain CVEs, twice** -- go1.25.10 -> 1.27.1 (#29). New CVEs disclosed mid-session hit 5 *other* independently-branched PRs that hadn't inherited the fix; same bump applied directly to each.
+- **No way to analyze meetings without a separate paid API key** -- `ClaudeCodeAnalyzer` / `--analyzer claude-code` reuses an existing local Claude Code login (#30).
+- **Zero measurement of AI-output quality** -- `internal/eval` + `heimdall eval`: golden transcripts, coverage/anti-hallucination/prompt-injection/multilingual checks, optional LLM-as-judge (#31).
+- **`audio.save_recording` / `--save-audio` was a documented no-op** -- now wired via `internal/recording` + `MeetingSession.OnAudioFrame` (#32).
+- **No local/offline transcription path** -- `heimdall transcribe` via `internal/localstt` (#32).
+- **Turkish characters stripped from crash-recovery filenames** -- consolidated into one shared `heimdall.SanitizeFilename` (#32).
+- **Stale Claude-model allowlist** -- replaced hardcoded enum with a shape check (#30).
+- **`make lint` never run in CI** -- `go vet`/`gofmt -l`/`golangci-lint` now wired into `.github/workflows/ci.yml`; pre-existing gofmt drift across 7 files cleared (#34).
+- **GoReleaser release builds had never actually succeeded** -- universal-binary path was hardcoded wrong (`.build/apple/...` vs. the real `.build/out/...`); fixed with a `find`-based lookup plus a 2-architecture verification check (#35).
+- **No MCP server** -- `heimdall mcp` exposes the vault as three tools via the official SDK; a hand-built stdio smoke test caught two real bugs (config over-resolution requiring unrelated API keys to start; a clean disconnect misreported as a crash) that unit tests alone hadn't (#36).
+- **Token usage parsed but discarded** -- now logged with latency on every successful API call (#37).
+- **No release automation, no Homebrew integration at all** -- tag-triggered `.github/workflows/release.yml` + `homebrew_casks` in `.goreleaser.yml` (#39; #38 had accidentally merged into its own base branch instead of `main` -- caught by checking out fresh `main` and finding the files missing, not by trusting the "merged" status).
+- **`skip_upload` template would have failed the entire release** the first time anyone tagged before the Homebrew tap's one-time setup -- Go's `text/template` errors on a genuinely-missing map key rather than defaulting to empty; caught by testing this exact scenario locally *before* tagging v0.1.0, fixed with `index .Env "..."` (#40).
+- **No v0.1.0 tag/release existed** -- tagged and released after the above; verified by downloading the actual published artifact and running it, not just checking the Actions log.
+- **Docs index (`docs/README.md`) stale since 2026-04-18** -- missing links to `PRODUCTIZATION.md`, `MONETIZATION_RESEARCH.md`, `DISTRIBUTION_RESEARCH.md`, `EVALUATION.md` (#31).
 
 ---
 
