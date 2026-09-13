@@ -39,6 +39,45 @@ archives:
 checksum:
   name_template: 'checksums.txt'
 
+# Requires a one-time manual setup: create the (empty) tap repository at
+# github.com/0merUfuk/homebrew-heimdall, and add a repo secret named
+# HOMEBREW_TAP_TOKEN holding a PAT with contents:write on that repo -- the
+# default GITHUB_TOKEN in Actions is scoped only to the heimdall repo itself
+# and cannot push to a different repository. See docs/RELEASING.md.
+#
+# Uses homebrew_casks (not the deprecated `brews`, see
+# https://goreleaser.com/deprecations#brews): casks install pre-compiled
+# binaries directly rather than generating a source-build formula, which is
+# the right fit since GoReleaser already produces the darwin/amd64+arm64
+# binaries. The xattr post-install hook is required because these binaries
+# are not code-signed/notarized (no Apple Developer account configured yet) --
+# without it, Gatekeeper blocks first launch. Revisit once signing is set up.
+homebrew_casks:
+  - name: heimdall
+    binaries:
+      - heimdall
+      - heimdall-audio
+    repository:
+      owner: 0merUfuk
+      name: homebrew-heimdall
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Casks
+    homepage: "https://github.com/0merUfuk/heimdall"
+    description: "CLI meeting companion -- captures audio, transcribes with speaker diarization, analyzes via Claude, and writes structured notes to Obsidian"
+    caveats: |
+      heimdall requires a Deepgram API key (transcription) and, optionally, an
+      Anthropic API key (meeting analysis) or an existing `claude` CLI login.
+      Run `heimdall config init` to get started, then `heimdall doctor` to
+      verify your setup.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/heimdall"]
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/heimdall-audio"]
+          end
+
 changelog:
   sort: asc
   filters:
