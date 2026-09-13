@@ -3,6 +3,7 @@
 ## v0.1.0 (Unreleased)
 
 ### Added
+- `ClaudeCodeAnalyzer` -- a second `Analyzer` backend that shells out to a local, already-authenticated `claude` CLI (`claude -p --bare --restricted --permission-prompts none`) instead of calling the Anthropic API directly. Select it with `--analyzer claude-code` on `record`/`recover`/`analyze`, or persist it via `claude.analyzer: claude-code` in config. Lets a user with an existing Claude subscription (Pro/Max/Team) analyze meetings without a separate, pay-per-token `ANTHROPIC_API_KEY`. `heimdall doctor` now reports whether the `claude` CLI is available and only fails the analysis check if *neither* backend is usable. Shares all retry/backoff/fallback policy (V-009) and the anti-hallucination + prompt-injection-mitigated system prompt with the existing API backend via a new `summarizeWithRetry` helper -- both backends degrade identically on failure.
 - SonioxTranscriber scaffolding behind the existing `Transcriber` interface, with `SonioxConfig` (env-var resolution + secret masking) and the `transcriber.NewFromName(name, dgCfg, snxCfg)` provider factory. Deepgram remains the default; opt-in via the new `--transcriber soniox` flag on `heimdall record` once `SONIOX_API_KEY` is configured. `heimdall doctor` now reports Soniox API-key status (`[pass]` when set, `[info]` when unset — opt-in, so absence is not a failure). Validation spike (TR+EN WER + streaming latency measurement) is a separate manual operator task per AD-011 Phase 2 (PRs #26, #27).
 - First-run recording-consent banner with persistent acknowledgement, plus `--consent-acknowledged` flag for non-interactive scripts/CI (PR #24).
 - `heimdall doctor` Screen Recording permission preflight via `audio-helper --check-permissions` (PR #24).
@@ -29,6 +30,7 @@
 - Lock `mip_opt_out=true` invariant on the Deepgram WebSocket URL via test assertions so a regression cannot silently re-enable model-training retention (PR #21).
 
 ### Fixed
+- `config.Validate()` rejected the real current flagship model (`claude-sonnet-5`) while accepting a fictitious one (`claude-sonnet-4-6`) that had drifted into the hardcoded allowlist. Replaced the exact-enum check with a `"claude-..."` shape check so the validator stops going stale every time Anthropic ships a new model name -- this project's own history shows that allowlist going wrong twice already.
 - CI had been red on `main` since 2026-07-19: `govulncheck` flagged 3 Go stdlib CVEs (GO-2026-5856, GO-2026-5039, GO-2026-5037) disclosed against go1.25.10 after it was pinned. Bumped the toolchain to go1.25.10 -> 1.27.1 (go.mod + CI workflow); Go only backports security fixes to the latest two majors, so this moves onto current stable rather than chasing 1.25.x patches.
 - Soniox: log dropped transcript segments (speaker, timestamp, truncated text) instead of discarding them silently when the output channel is full; the drop stays non-blocking but is now observable (PR #27).
 - Soniox: scope the `--language` config fallback to the active provider so a `deepgram.language` config value no longer bleeds into a `--transcriber soniox` session (and vice versa) (PR #27).

@@ -95,3 +95,20 @@
 **Decision**: Added a `profiles:` map to config.yaml. Each profile can set title, language, participants, and keywords. The `heimdall record --profile daily` flag applies the profile; explicit CLI flags override profile values. Two new subcommands: `heimdall config add-profile <name>` and `heimdall config profiles`.
 
 **Consequences**: Zero-flag daily workflow for the common case. Config schema extended; existing configs without `profiles:` continue to work.
+
+### ID-005: ClaudeCodeAnalyzer -- subprocess backend as a second Analyzer implementation
+
+**Date**: 2026-09-13
+
+**Context**: The only `Analyzer` implementation (`ClaudeAnalyzer`) requires `ANTHROPIC_API_KEY` and bills per token. A user who already pays for a Claude subscription (Pro/Max/Team) and has Claude Code installed has no way to reuse that access for meeting analysis -- they'd need a second, separate credential and a second bill.
+
+**Decision**: Added `ClaudeCodeAnalyzer` (`internal/analyzer/claudecode.go`), selected via `--analyzer claude-code` (default remains `api`). It shells out to the user's own `claude` binary in non-interactive print mode: `claude -p --bare --restricted --permission-prompts none --output-format json --system-prompt <systemPrompt>`, piping the transcript over stdin (not argv, to avoid any risk of OS argument-length limits on long meetings) and parsing the `{"result": ..., "is_error": ...}` JSON envelope. `--bare` skips hook/CLAUDE.md/plugin discovery so a meeting transcript can't pick up unrelated project context; `--restricted` plus `--permission-prompts none` remove tool-execution surface entirely, since this is a pure text-in/JSON-out completion with no legitimate reason to invoke a tool. heimdall never sees or handles the user's Claude credential -- it only asks an already-authenticated local process to run once and exit.
+
+The retry/backoff/parse/fallback orchestration (V-009) was extracted out of `ClaudeAnalyzer.Summarize` into a shared `summarizeWithRetry(ctx, segments, opts, callOnce)` helper so both backends share identical failure-degradation behavior; each backend only supplies its own `callOnce` closure (HTTP call vs. subprocess call). `buildUserPrompt`, `systemPrompt`, and the response parser (`parseAnalysisResponse`) were already backend-agnostic and needed no changes.
+
+**Consequences**:
+- `Analyzer` now has two implementations selectable via `analyzer.NewFromName(name, apiKey)`, mirroring `transcriber.NewFromName`'s provider-factory pattern.
+- Model selection differs by design: the `api` backend falls back to the package `DefaultModel` when unset; `claude-code` leaves `--model` unset when `opts.Model == ""` so it defers to the user's own Claude Code default rather than forcing a specific model choice onto their already-configured setup.
+- `config.Validate()`'s Claude-model check was loosened from an exact-enum allowlist (which had already gone stale twice in this project's history) to a `"claude-..."` shape check, and `claude.api_key` is only required when `claude.analyzer != "claude-code"`.
+- `doctor` now reports `claude` CLI availability and only fails its Claude-analysis check when *neither* `ANTHROPIC_API_KEY` nor a working `claude` CLI is present.
+- Not yet covered: a live end-to-end test against a real authenticated `claude` CLI (the sandbox this was built in has no logged-in session to test against) -- unit tests cover the subprocess contract via an injectable `commandRunner`, verified empirically against the real CLI's JSON envelope shape, but a first real run should be smoke-tested by a user with an active Claude Code login.

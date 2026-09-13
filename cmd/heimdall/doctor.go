@@ -121,13 +121,33 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		passed++ // opt-in provider; absence is not a failure
 	}
 
-	// Check Anthropic API key.
+	// Check Anthropic API key. Not a hard failure on its own: --analyzer
+	// claude-code (checked next) is a valid alternative path to analysis.
 	total++
-	if os.Getenv("ANTHROPIC_API_KEY") != "" {
+	hasAPIKey := os.Getenv("ANTHROPIC_API_KEY") != ""
+	if hasAPIKey {
 		fmt.Printf("  [pass] Anthropic API key configured\n")
 		passed++
 	} else {
-		fmt.Printf("  [FAIL] ANTHROPIC_API_KEY not set -- Claude analysis will be skipped\n")
+		fmt.Printf("  [info] ANTHROPIC_API_KEY not set (needed for the default --analyzer api; not needed for --analyzer claude-code)\n")
+	}
+
+	// Check the claude CLI for --analyzer claude-code. Optional: the default
+	// --analyzer is "api", so absence here is informational, not a failure,
+	// mirroring the Soniox API key check above. Passes the overall doctor
+	// count when EITHER analysis path is usable, so a user who only set up
+	// one of the two is not told to "fix" the other.
+	total++
+	claudeCodePath, claudeCodeErr := exec.LookPath("claude")
+	switch {
+	case claudeCodeErr == nil:
+		fmt.Printf("  [pass] claude CLI found (%s) -- --analyzer claude-code available\n", claudeCodePath)
+		passed++
+	case hasAPIKey:
+		fmt.Printf("  [info] claude CLI not found on PATH (optional, for --analyzer claude-code)\n")
+		passed++
+	default:
+		fmt.Printf("  [FAIL] Neither ANTHROPIC_API_KEY nor a claude CLI on PATH -- Claude analysis will be skipped\n")
 	}
 
 	// Check heimdall-audio binary.
