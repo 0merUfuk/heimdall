@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/0merUfuk/heimdall/internal/consent"
 	"github.com/0merUfuk/heimdall/internal/heimdall"
 	"github.com/0merUfuk/heimdall/internal/output"
+	"github.com/0merUfuk/heimdall/internal/recording"
 	"github.com/0merUfuk/heimdall/internal/recovery"
 	"github.com/0merUfuk/heimdall/internal/session"
 	"github.com/0merUfuk/heimdall/internal/transcriber"
@@ -34,6 +36,7 @@ var (
 	recordTranscriber         string
 	recordAnalyzer            string
 	recordConsentAcknowledged bool
+	recordSaveAudio           bool
 )
 
 var recordCmd = &cobra.Command{
@@ -70,9 +73,11 @@ func init() {
 	recordCmd.Flags().StringVar(&recordKeywords, "keywords", "", "comma-separated list of context keywords for analysis (Deepgram only; ignored for Soniox)")
 	recordCmd.Flags().StringVar(&recordProfile, "profile", "", "meeting profile name (from config)")
 	recordCmd.Flags().StringVar(&recordTranscriber, "transcriber", "deepgram", "transcription provider: deepgram (default) or soniox")
-	recordCmd.Flags().StringVar(&recordAnalyzer, "analyzer", "api", "meeting-analysis backend: api (default, needs ANTHROPIC_API_KEY) or claude-code (uses a local `claude` login, no API key needed)")
+	recordCmd.Flags().StringVar(&recordAnalyzer, "analyzer", "api", "meeting-analysis backend: api (default, needs ANTHROPIC_API_KEY) or claude-code (uses a local claude login, no API key needed)")
 	recordCmd.Flags().BoolVar(&recordConsentAcknowledged, "consent-acknowledged", false,
 		"acknowledge the recording-consent banner non-interactively (for scripts/CI; does not persist to config)")
+	recordCmd.Flags().BoolVar(&recordSaveAudio, "save-audio", false,
+		"save the raw mixed audio as a WAV file (does not persist to config; same effect as audio.save_recording: true)")
 	rootCmd.AddCommand(recordCmd)
 }
 
@@ -295,14 +300,50 @@ func runRecord(cmd *cobra.Command, args []string) error {
 		defer recWriter.Stop()
 	}
 
-	// Register segment callback BEFORE Start to avoid data race.
-	// OnSegment must be called before Start (see session.go contract).
+	// Optional raw-audio persistence (audio.save_recording). A write error
+	// here is logged, never fatal -- losing the backup copy must not
+	// interrupt a live meeting (audio-safety.md).
+	var wavWriter *recording.WAVWriter
+	saveAudio := recordSaveAudio || (cfg != nil && cfg.Audio.SaveRecording)
+	if saveAudio {
+		recordingDir := recording.Dir()
+		if cfg != nil && cfg.Audio.RecordingPath != "" {
+			recordingDir = config.ExpandHome(cfg.Audio.RecordingPath)
+		}
+		// The mixer's documented output contract is 16kHz stereo
+		// (L=system, R=mic; see mixer.go / AD-007) -- this is the format of
+		// the pre-downmix frame OnAudioFrame taps, before session.go
+		// downmixes to mono for the transcriber.
+		wavPath := filepath.Join(recordingDir, recording.FileName(recordTitle, time.Now()))
+		w, err := recording.NewWAVWriter(wavPath, 16000, 2)
+		if err != nil {
+			log.Printf("warning: raw-audio recording unavailable: %v", err)
+		} else {
+			wavWriter = w
+			fmt.Printf("Raw audio recording: %s\n", wavPath)
+			defer func() {
+				if cerr := wavWriter.Close(); cerr != nil {
+					log.Printf("warning: closing raw-audio recording: %v", cerr)
+				}
+			}()
+		}
+	}
+
+	// Register segment/audio-frame callbacks BEFORE Start to avoid a data race.
+	// OnSegment/OnAudioFrame must be called before Start (see session.go contract).
 	sess.OnSegment(func(seg heimdall.Segment) {
 		displaySegment(seg)
 		if recWriter != nil && seg.IsFinal {
 			recWriter.AddSegment(seg)
 		}
 	})
+	if wavWriter != nil {
+		sess.OnAudioFrame(func(frame heimdall.AudioFrame) {
+			if err := wavWriter.WriteFrame(frame); err != nil {
+				log.Printf("warning: writing raw-audio frame: %v", err)
+			}
+		})
+	}
 
 	// Start the session (starts all pipeline stages).
 	if err := sess.Start(ctx); err != nil {

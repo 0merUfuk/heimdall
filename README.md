@@ -82,6 +82,7 @@ heimdall record --title "Meeting" --analyzer claude-code
 | `--analyzer` | Meeting-analysis backend: `api` (default, needs `ANTHROPIC_API_KEY`) or `claude-code` (shells out to a local, logged-in `claude` CLI -- no API key needed) |
 | `--profile` | Use a named meeting profile from config (loads title, language, participants, keywords); explicit flags override profile values |
 | `--consent-acknowledged` | Acknowledge the recording-consent banner non-interactively (scripts/CI; does not persist to config) |
+| `--save-audio` | Save the raw mixed audio (16kHz stereo WAV, L=system/R=mic) to `audio.recording_path`; does not persist to config. Graceful-degradation backup -- if the transcriber and analyzer both fail, the meeting audio is still on disk. Same effect as setting `audio.save_recording: true` |
 
 #### Analysis backends
 
@@ -167,7 +168,7 @@ obsidian:
 audio:
   system_audio: true
   microphone: true
-  save_recording: false
+  save_recording: false            # true (or --save-audio) saves raw meeting audio as WAV
   recording_path: ~/.heimdall/recordings/
 
 output:
@@ -251,6 +252,7 @@ heimdall sends meeting data to two external services:
 | Meeting transcript | Anthropic (US) via HTTPS | 7 days (API policy) | Never (API data excluded) |
 | Meeting notes | Your local Obsidian vault | You control | N/A |
 | Recovery files | `~/.heimdall/recovery/` (local) | Until cleanup | N/A |
+| Raw audio recording (opt-in, `--save-audio`) | `~/.heimdall/recordings/` (local) | Until you delete it | N/A |
 
 heimdall does not store audio or transcripts on any server it controls. API keys are stored as environment variable references, never in plaintext config files.
 
