@@ -112,3 +112,18 @@ The retry/backoff/parse/fallback orchestration (V-009) was extracted out of `Cla
 - `config.Validate()`'s Claude-model check was loosened from an exact-enum allowlist (which had already gone stale twice in this project's history) to a `"claude-..."` shape check, and `claude.api_key` is only required when `claude.analyzer != "claude-code"`.
 - `doctor` now reports `claude` CLI availability and only fails its Claude-analysis check when *neither* `ANTHROPIC_API_KEY` nor a working `claude` CLI is present.
 - Not yet covered: a live end-to-end test against a real authenticated `claude` CLI (the sandbox this was built in has no logged-in session to test against) -- unit tests cover the subprocess contract via an injectable `commandRunner`, verified empirically against the real CLI's JSON envelope shape, but a first real run should be smoke-tested by a user with an active Claude Code login.
+
+### ID-006: `internal/eval` -- deterministic golden-fixture checks as the primary quality signal, LLM-as-judge as opt-in supplement
+
+**Date**: 2026-09-13
+
+**Context**: heimdall had no measurement of Analyze-stage *output quality* at all -- `internal/analyzer`'s tests are httptest-mocked (per `.claude/rules/go-net-http-services.md`'s "tests use mocks, not real external services" rule) and only prove JSON-parsing plumbing works, never whether a real model call produces a faithful, complete, non-hallucinated, correctly-localized note.
+
+**Decision**: Built `internal/eval` around seven hand-written golden transcripts (`fixtures.go`) with *minimum-bar* ground truth (minimum decision/action-item counts, forbidden strings, language markers) rather than exact-match golden outputs -- LLM prose varies run to run even at fixed settings, so exact-string goldens would be permanently flaky. Ten deterministic checks (`checks.go`) run for free against every fixture's output: coverage floors, anti-hallucination on both "should be empty" and "names must be traceable to the transcript" axes, prompt-injection-leak detection (V-014), and a crude multilingual marker check. These gate the `heimdall eval` command's exit code. A separate, explicitly opt-in LLM-as-judge layer (`judge.go`, `--judge` flag) asks `claude-sonnet-5` to score faithfulness/coverage 0-10 for nuance the deterministic layer can't capture -- this costs real tokens and never affects the exit code, so it can't turn a CI job flaky or expensive by accident.
+
+Chose plain Go over a dedicated Python eval framework (promptfoo/deepeval/ragas/...): heimdall is a deliberately lean, few-dependency Go binary (`docs/GRILL_REPORT.md`'s "Meta-Engineering ROI" finding specifically flagged process-proportionality as a past failure mode of this project), and a second language/dependency tree/CI runner to grade output the `heimdall` binary already parses would repeat that mistake. `internal/eval` reuses `analyzer.Analyzer` directly and ships in the same binary.
+
+**Consequences**:
+- `heimdall eval` / `make eval` exist as a real regression harness: a maintainer can run it before tagging a release and get an immediate pass/fail plus per-check detail.
+- The judge layer is deliberately NOT wired into the public CI workflow (`.github/workflows/ci.yml` has no secrets configured) -- provisioning `ANTHROPIC_API_KEY` as a repo secret for CI-gated judging is a decision left to the maintainer, not defaulted silently into a public workflow.
+- Not yet covered: the suite has never been run against a real model (no live credentials in the build sandbox) -- see `docs/EVALUATION.md`'s "Known limitation" section. The first real `heimdall eval` run is the actual quality baseline, not this entry's design intent.
