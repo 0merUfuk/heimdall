@@ -130,6 +130,16 @@ heimdall analyze --file ~/.heimdall/recovery/2026-03-28T14-30-00-sprint-planning
 heimdall analyze --file ~/.heimdall/recovery/2026-03-28T14-30-00-sprint-planning.json --analyzer claude-code
 ```
 
+### `heimdall eval`
+
+Run the meeting-analysis quality suite against seven golden transcripts, checking coverage, anti-hallucination, prompt-injection resistance, and multilingual consistency. Add `--judge` for LLM-as-judge faithfulness/coverage scoring. See [docs/EVALUATION.md](docs/EVALUATION.md).
+
+```bash
+heimdall eval
+heimdall eval --analyzer claude-code
+heimdall eval --judge --json
+```
+
 ### `heimdall version`
 
 Print version and build information.
