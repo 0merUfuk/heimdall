@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -83,6 +84,29 @@ func (c *ClaudeAnalyzer) WithHTTPClient(client *http.Client) *ClaudeAnalyzer {
 // On all retries exhausted, returns a partial MeetingNote with the raw transcript.
 // Never returns nil -- always returns something usable.
 func (c *ClaudeAnalyzer) Summarize(ctx context.Context, segments []heimdall.Segment, opts heimdall.AnalyzeOpts) (*heimdall.MeetingNote, error) {
+	model := opts.Model
+	if model == "" {
+		model = DefaultModel
+	}
+
+	return summarizeWithRetry(ctx, segments, opts, func(ctx context.Context, userPrompt string) (string, error) {
+		return c.callAPI(ctx, model, userPrompt)
+	})
+}
+
+// callOnceFunc performs a single analysis call against some backend
+// (Anthropic API, `claude -p` subprocess, ...) and returns the model's raw
+// text response. It must NOT itself retry -- summarizeWithRetry owns retry
+// policy so every Analyzer implementation behaves identically under failure.
+type callOnceFunc func(ctx context.Context, userPrompt string) (string, error)
+
+// summarizeWithRetry implements the retry-with-backoff, parse, and
+// fallback-on-exhaustion orchestration shared by every Analyzer
+// implementation (V-009). callOnce performs one backend-specific call;
+// everything else -- empty-transcript short-circuit, prompt construction,
+// exponential backoff, JSON parsing, and the fallback note on exhaustion --
+// is identical regardless of which backend is answering.
+func summarizeWithRetry(ctx context.Context, segments []heimdall.Segment, opts heimdall.AnalyzeOpts, callOnce callOnceFunc) (*heimdall.MeetingNote, error) {
 	// Handle empty or nil segments.
 	if len(segments) == 0 {
 		return &heimdall.MeetingNote{
@@ -97,11 +121,6 @@ func (c *ClaudeAnalyzer) Summarize(ctx context.Context, segments []heimdall.Segm
 		}, nil
 	}
 
-	model := opts.Model
-	if model == "" {
-		model = DefaultModel
-	}
-
 	userPrompt := buildUserPrompt(segments, opts)
 
 	var lastErr error
@@ -111,20 +130,20 @@ func (c *ClaudeAnalyzer) Summarize(ctx context.Context, segments []heimdall.Segm
 			delay := retryDelays[attempt-1]
 			select {
 			case <-ctx.Done():
-				return c.buildFallbackNote(segments, fmt.Errorf("context cancelled during retry: %w", ctx.Err())), ctx.Err()
+				return buildFallbackNote(segments, fmt.Errorf("context cancelled during retry: %w", ctx.Err())), ctx.Err()
 			case <-time.After(delay):
 			}
 		}
 
-		result, err := c.callAPI(ctx, model, userPrompt)
+		result, err := callOnce(ctx, userPrompt)
 		if err != nil {
 			lastErr = err
 			continue
 		}
 
-		note, err := c.parseResponse(result, segments)
+		note, err := parseAnalysisResponse(result, segments)
 		if err != nil {
-			lastErr = fmt.Errorf("parsing Claude response: %w", err)
+			lastErr = fmt.Errorf("parsing analysis response: %w", err)
 			continue
 		}
 
@@ -132,7 +151,7 @@ func (c *ClaudeAnalyzer) Summarize(ctx context.Context, segments []heimdall.Segm
 	}
 
 	// All retries exhausted -- return fallback note (V-009).
-	return c.buildFallbackNote(segments, lastErr), nil
+	return buildFallbackNote(segments, lastErr), nil
 }
 
 // apiRequest is the request body for the Anthropic Messages API.
@@ -180,6 +199,33 @@ type apiErrorResponse struct {
 
 // callAPI makes a single API call to the Anthropic Messages endpoint.
 func (c *ClaudeAnalyzer) callAPI(ctx context.Context, model, userPrompt string) (string, error) {
+	start := time.Now()
+	text, usage, err := c.doCallAPI(ctx, model, userPrompt)
+	if err == nil {
+		// Cost/latency observability: token counts, deliberately not a
+		// dollar estimate. This project's own history (AD-002) already
+		// shows a hardcoded price figure going stale and silently wrong;
+		// README's "Cost Per Meeting" table is the one place a $ estimate
+		// lives, kept current by hand. A second, code-level price constant
+		// here would just be a second place for that same drift to happen
+		// invisibly.
+		log.Printf("analyzer: model=%s input_tokens=%d output_tokens=%d latency=%s",
+			model, usage.InputTokens, usage.OutputTokens, time.Since(start).Round(time.Millisecond))
+	}
+	return text, err
+}
+
+// apiUsage carries token counts back to callAPI for latency/usage logging.
+// Deliberately just counts, not a dollar estimate -- see callAPI's comment.
+type apiUsage struct {
+	InputTokens  int
+	OutputTokens int
+}
+
+// doCallAPI is callAPI's implementation, split out so callAPI can wrap it
+// uniformly with latency/usage logging regardless of which return path is
+// taken.
+func (c *ClaudeAnalyzer) doCallAPI(ctx context.Context, model, userPrompt string) (string, apiUsage, error) {
 	reqBody := apiRequest{
 		Model:     model,
 		MaxTokens: defaultMaxTokens,
@@ -191,13 +237,13 @@ func (c *ClaudeAnalyzer) callAPI(ctx context.Context, model, userPrompt string) 
 
 	bodyBytes, err := json.Marshal(reqBody)
 	if err != nil {
-		return "", fmt.Errorf("marshalling request: %w", err)
+		return "", apiUsage{}, fmt.Errorf("marshalling request: %w", err)
 	}
 
 	url := c.baseURL + "/v1/messages"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
 	if err != nil {
-		return "", fmt.Errorf("creating request: %w", err)
+		return "", apiUsage{}, fmt.Errorf("creating request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -206,43 +252,44 @@ func (c *ClaudeAnalyzer) callAPI(ctx context.Context, model, userPrompt string) 
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("calling Anthropic API: %w", err)
+		return "", apiUsage{}, fmt.Errorf("calling Anthropic API: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("reading response body: %w", err)
+		return "", apiUsage{}, fmt.Errorf("reading response body: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		var apiErr apiErrorResponse
 		if json.Unmarshal(respBody, &apiErr) == nil && apiErr.Error.Message != "" {
-			return "", fmt.Errorf("Anthropic API error (status %d): %s: %s", resp.StatusCode, apiErr.Error.Type, apiErr.Error.Message)
+			return "", apiUsage{}, fmt.Errorf("anthropic API error (status %d): %s: %s", resp.StatusCode, apiErr.Error.Type, apiErr.Error.Message)
 		}
-		return "", fmt.Errorf("Anthropic API error (status %d): %s", resp.StatusCode, string(respBody))
+		return "", apiUsage{}, fmt.Errorf("anthropic API error (status %d): %s", resp.StatusCode, string(respBody))
 	}
 
 	var apiResp apiResponse
 	if err := json.Unmarshal(respBody, &apiResp); err != nil {
-		return "", fmt.Errorf("unmarshalling response: %w", err)
+		return "", apiUsage{}, fmt.Errorf("unmarshalling response: %w", err)
 	}
+	usage := apiUsage{InputTokens: apiResp.Usage.InputTokens, OutputTokens: apiResp.Usage.OutputTokens}
 
 	// Extract text content from response blocks.
 	for _, block := range apiResp.Content {
 		if block.Type == "text" {
-			return block.Text, nil
+			return block.Text, usage, nil
 		}
 	}
 
-	return "", fmt.Errorf("no text content in API response")
+	return "", apiUsage{}, fmt.Errorf("no text content in API response")
 }
 
 // analysisResult is the JSON structure returned by Claude's analysis.
 type analysisResult struct {
-	SpeakerMap  map[string]string `json:"speaker_map"`
-	Summary     string            `json:"summary"`
-	Decisions   []struct {
+	SpeakerMap map[string]string `json:"speaker_map"`
+	Summary    string            `json:"summary"`
+	Decisions  []struct {
 		Description string `json:"description"`
 		DecidedBy   string `json:"decided_by"`
 	} `json:"decisions"`
@@ -263,8 +310,11 @@ type analysisResult struct {
 	MeetingType string `json:"meeting_type"`
 }
 
-// parseResponse parses Claude's JSON response into a MeetingNote.
-func (c *ClaudeAnalyzer) parseResponse(text string, segments []heimdall.Segment) (*heimdall.MeetingNote, error) {
+// parseAnalysisResponse parses a Claude analysis response (from either the
+// direct API or a `claude -p` subprocess) into a MeetingNote. Shared by every
+// Analyzer implementation so the JSON schema and error handling stay in one
+// place.
+func parseAnalysisResponse(text string, segments []heimdall.Segment) (*heimdall.MeetingNote, error) {
 	// Strip markdown code fences if present (Claude sometimes wraps JSON in ```json ... ```).
 	text = stripCodeFences(text)
 	text = strings.TrimSpace(text)
@@ -348,8 +398,8 @@ func (c *ClaudeAnalyzer) parseResponse(text string, segments []heimdall.Segment)
 
 // buildFallbackNote creates a partial MeetingNote when analysis fails (V-009).
 // It includes the raw transcript segments and an error summary.
-// Never returns nil.
-func (c *ClaudeAnalyzer) buildFallbackNote(segments []heimdall.Segment, lastErr error) *heimdall.MeetingNote {
+// Never returns nil. Shared by every Analyzer implementation.
+func buildFallbackNote(segments []heimdall.Segment, lastErr error) *heimdall.MeetingNote {
 	summary := fallbackSummary
 	if lastErr != nil {
 		summary = fmt.Sprintf("%s (error: %v)", fallbackSummary, lastErr)

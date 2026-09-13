@@ -1,9 +1,11 @@
 package analyzer
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -844,4 +846,77 @@ func TestBuildUserPrompt(t *testing.T) {
 			t.Error("prompt should not contain keywords section when none provided")
 		}
 	})
+}
+
+// TestClaudeAnalyzer_LogsTokenUsageAndLatency verifies that a successful API
+// call logs the real input/output token counts from the API response (not a
+// dollar estimate -- see callAPI's doc comment on why) and a latency value.
+func TestClaudeAnalyzer_LogsTokenUsageAndLatency(t *testing.T) {
+	resp := apiResponse{
+		Content:    []contentBlock{{Type: "text", Text: sampleAnalysisJSON()}},
+		Model:      "claude-haiku-4-5",
+		StopReason: "end_turn",
+	}
+	resp.Usage.InputTokens = 1234
+	resp.Usage.OutputTokens = 567
+	body, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("marshalling test response: %v", err)
+	}
+
+	server, _ := newMockAPIServer(http.StatusOK, string(body))
+	defer server.Close()
+
+	analyzer := NewClaudeAnalyzer("test-key").WithBaseURL(server.URL)
+
+	var logBuf bytes.Buffer
+	origOutput := log.Writer()
+	origFlags := log.Flags()
+	log.SetOutput(&logBuf)
+	log.SetFlags(0) // no timestamp prefix -- keep the assertion simple
+	defer func() {
+		log.SetOutput(origOutput)
+		log.SetFlags(origFlags)
+	}()
+
+	_, err = analyzer.Summarize(context.Background(), sampleSegments(), heimdall.AnalyzeOpts{})
+	if err != nil {
+		t.Fatalf("Summarize: unexpected error: %v", err)
+	}
+
+	logged := logBuf.String()
+	for _, want := range []string{"input_tokens=1234", "output_tokens=567", "latency="} {
+		if !strings.Contains(logged, want) {
+			t.Errorf("log output missing %q, got: %q", want, logged)
+		}
+	}
+	// The explicit non-goal: no dollar sign anywhere in the log line, since
+	// this deliberately logs counts, not a hardcoded price estimate.
+	if strings.Contains(logged, "$") {
+		t.Errorf("log output should not contain a dollar-cost estimate, got: %q", logged)
+	}
+}
+
+// TestClaudeAnalyzer_NoUsageLogOnFailure verifies that a failed call (all
+// retries exhausted) does not log a bogus zero-usage line -- the log line
+// only appears for an actual successful response, not the fallback path.
+func TestClaudeAnalyzer_NoUsageLogOnFailure(t *testing.T) {
+	server, _ := newMockAPIServer(http.StatusInternalServerError, `{"type":"error","error":{"type":"server_error","message":"fail"}}`)
+	defer server.Close()
+
+	analyzer := NewClaudeAnalyzer("test-key").WithBaseURL(server.URL)
+
+	var logBuf bytes.Buffer
+	origOutput := log.Writer()
+	log.SetOutput(&logBuf)
+	defer log.SetOutput(origOutput)
+
+	_, err := analyzer.Summarize(context.Background(), sampleSegments(), heimdall.AnalyzeOpts{})
+	if err != nil {
+		t.Fatalf("Summarize should fall back, not error: %v", err)
+	}
+
+	if strings.Contains(logBuf.String(), "input_tokens=") {
+		t.Errorf("expected no usage log line on total failure, got: %q", logBuf.String())
+	}
 }

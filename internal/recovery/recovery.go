@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -267,17 +266,15 @@ func LoadRecoveryFile(path string) (*RecoveryFile, error) {
 	return &rf, nil
 }
 
-// sanitizeTitle converts a meeting title to a filename-safe string.
-// Lowercases, replaces non-alphanumeric characters with hyphens, and
-// collapses consecutive hyphens.
+// sanitizeTitle converts a meeting title to a filename-safe string. Thin
+// wrapper over heimdall.SanitizeFilename (the shared implementation -- see
+// its doc comment) with this package's "untitled" fallback.
+//
+// Previously had its own regexp.MustCompile(`[^a-zA-Z0-9]+`) here, which
+// stripped Turkish (and every other non-ASCII) character from recovery
+// filenames even after output/renderer.go's sanitizeFilename was fixed to
+// preserve them (V-017) -- the two copies had drifted. Now both call the
+// same function.
 func sanitizeTitle(title string) string {
-	// Replace non-alphanumeric characters with hyphens.
-	re := regexp.MustCompile(`[^a-zA-Z0-9]+`)
-	s := re.ReplaceAllString(title, "-")
-	s = strings.ToLower(s)
-	s = strings.Trim(s, "-")
-	if s == "" {
-		s = "untitled"
-	}
-	return s
+	return heimdall.SanitizeFilename(title, "untitled")
 }

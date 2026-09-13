@@ -116,13 +116,13 @@ func buildUserPrompt(segments []heimdall.Segment, opts heimdall.AnalyzeOpts) str
 	// If a non-English language is specified, instruct Claude to produce output
 	// in that language. JSON keys remain in English for parsing.
 	if opts.Language != "" && opts.Language != "en" && opts.Language != "multi" {
-		b.WriteString(fmt.Sprintf("The transcript is in %s. Produce all summary text, action items, decisions, topics, and follow-ups in %s. Keep JSON keys in English.\n\n", opts.Language, opts.Language))
+		fmt.Fprintf(&b, "The transcript is in %s. Produce all summary text, action items, decisions, topics, and follow-ups in %s. Keep JSON keys in English.\n\n", opts.Language, opts.Language)
 	}
 
 	// Format transcript with clear delimiters (V-014).
 	b.WriteString("<transcript>\n")
 	for _, seg := range segments {
-		b.WriteString(fmt.Sprintf("[%s] Speaker %d: %s\n", formatTimestamp(seg.Start), seg.Speaker, seg.Text))
+		fmt.Fprintf(&b, "[%s] Speaker %d: %s\n", formatTimestamp(seg.Start), seg.Speaker, seg.Text)
 	}
 	b.WriteString("</transcript>\n\n")
 	b.WriteString("Analyze the meeting transcript above and respond with a JSON object following the schema described in your instructions.")

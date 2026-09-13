@@ -84,7 +84,7 @@ func (m *mockAudioSourceWithData) generateAudio(ctx context.Context) {
 			if m.channels == 2 && m.sampleRate == 48000 {
 				// System audio: 48kHz, 32-bit float, stereo.
 				totalSamples := samplesPerFrame * 2 // stereo pairs
-				data = make([]byte, totalSamples*4)  // 4 bytes per float32
+				data = make([]byte, totalSamples*4) // 4 bytes per float32
 				for i := 0; i < totalSamples; i++ {
 					// 440Hz sine wave.
 					t := float64(frameIdx*samplesPerFrame+i/2) / float64(m.sampleRate)
@@ -128,13 +128,13 @@ func (m *mockAudioSourceWithData) generateAudio(ctx context.Context) {
 // and produces segments in response. It simulates real transcriber behavior by
 // emitting a segment after receiving a configurable number of frames.
 type segmentProducingTranscriber struct {
-	segCh             chan heimdall.Segment
-	connected         bool
-	closed            bool
-	mu                sync.Mutex
-	frameCount        int
-	framesPerSegment  int
-	segmentIndex      int
+	segCh            chan heimdall.Segment
+	connected        bool
+	closed           bool
+	mu               sync.Mutex
+	frameCount       int
+	framesPerSegment int
+	segmentIndex     int
 }
 
 func newSegmentProducingTranscriber(framesPerSegment int) *segmentProducingTranscriber {
@@ -271,6 +271,84 @@ func TestIntegration_FullPipeline(t *testing.T) {
 	tr.mu.Unlock()
 	if frameCount == 0 {
 		t.Error("expected transcriber to receive audio frames, got 0")
+	}
+}
+
+// TestIntegration_OnAudioFrameCalledForEachMixedFrame verifies that
+// OnAudioFrame receives the pre-downmix stereo frame for every frame the
+// mixer produces, and that its callback firing doesn't disturb the
+// transcriber/segment path (audio.save_recording taps the stream without
+// changing what downstream stages see).
+func TestIntegration_OnAudioFrameCalledForEachMixedFrame(t *testing.T) {
+	sys := newMockAudioSourceWithData(48000, 2)
+	mic := newMockAudioSourceWithData(16000, 1)
+	tr := newSegmentProducingTranscriber(5)
+
+	sess := NewMeetingSession("Integration Test", sys, mic, tr, "en", nil)
+
+	var audioFrames []heimdall.AudioFrame
+	var afMu sync.Mutex
+	sess.OnAudioFrame(func(frame heimdall.AudioFrame) {
+		afMu.Lock()
+		audioFrames = append(audioFrames, frame)
+		afMu.Unlock()
+	})
+
+	var segments []heimdall.Segment
+	var segMu sync.Mutex
+	sess.OnSegment(func(seg heimdall.Segment) {
+		segMu.Lock()
+		segments = append(segments, seg)
+		segMu.Unlock()
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := sess.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	time.Sleep(500 * time.Millisecond)
+
+	cancel()
+	if err := sess.Stop(); err != nil {
+		t.Fatalf("Stop failed: %v", err)
+	}
+
+	afMu.Lock()
+	frameCount := len(audioFrames)
+	afMu.Unlock()
+	if frameCount == 0 {
+		t.Fatal("expected OnAudioFrame to be called at least once, got 0 calls")
+	}
+
+	// The tapped frame is pre-downmix: the mixer's documented output is
+	// stereo (2 channels) -- see mixer.go / AD-007 -- so OnAudioFrame must
+	// never observe the mono frame session.go sends to the transcriber.
+	afMu.Lock()
+	for i, f := range audioFrames {
+		if f.Channels != 2 {
+			t.Errorf("audioFrames[%d].Channels = %d, want 2 (pre-downmix stereo)", i, f.Channels)
+			break
+		}
+	}
+	afMu.Unlock()
+
+	// Tapping the stream for OnAudioFrame must not affect the transcriber
+	// path: frames/segments should flow exactly as in TestIntegration_FullPipeline.
+	tr.mu.Lock()
+	trFrameCount := tr.frameCount
+	tr.mu.Unlock()
+	if trFrameCount == 0 {
+		t.Error("expected transcriber to still receive audio frames alongside OnAudioFrame, got 0")
+	}
+
+	segMu.Lock()
+	segCount := len(segments)
+	segMu.Unlock()
+	if segCount == 0 {
+		t.Error("expected segments to still be produced alongside OnAudioFrame, got 0")
 	}
 }
 
