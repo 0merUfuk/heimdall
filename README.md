@@ -8,7 +8,8 @@ Named after the Norse god who could hear grass growing.
 
 - Captures system audio (remote participants) and microphone (your voice) simultaneously
 - Real-time transcription with speaker diarization via Deepgram Nova-3 (default), with Soniox as an opt-in alternative (`--transcriber soniox`)
-- Post-meeting analysis via Claude -- summary, decisions, action items, speaker identification
+- Optional fully-offline path: `--save-audio` to capture raw audio, `heimdall transcribe` to transcribe it locally via Whisper -- no cloud, no API key, no per-meeting cost
+- Post-meeting analysis via Claude (API key or a local Claude Code login -- `--analyzer claude-code`) -- summary, decisions, action items, speaker identification
 - Writes Obsidian-native markdown with YAML frontmatter, wikilinks, and collapsible transcript
 - Crash recovery -- periodic temp file saves, recover interrupted sessions
 - Graceful degradation -- Claude fails? Raw transcript. Deepgram fails? Raw audio saved.
@@ -129,6 +130,26 @@ Re-analyze a specific recovery transcript file.
 ```bash
 heimdall analyze --file ~/.heimdall/recovery/2026-03-28T14-30-00-sprint-planning.json
 heimdall analyze --file ~/.heimdall/recovery/2026-03-28T14-30-00-sprint-planning.json --analyzer claude-code
+```
+
+### `heimdall transcribe`
+
+Transcribe a saved audio file locally via [Whisper](https://github.com/ggml-org/whisper.cpp) -- fully offline, no API key, no cloud, no per-meeting cost. Pairs with `--save-audio`: record without any transcription provider, transcribe later on your own schedule.
+
+```bash
+heimdall record --save-audio --transcriber deepgram   # or skip cloud STT entirely and just save audio
+heimdall transcribe --file ~/.heimdall/recordings/2026-09-13T10-00-00-standup.wav
+heimdall transcribe --file meeting.wav --model small --language tr
+```
+
+Requires the `whisper-cli` binary (`brew install whisper-cpp`) and a downloaded model (`heimdall model download base`). Always passes whisper.cpp's built-in `--diarize` (stereo-channel diarization), separating system audio (remote participants) from your microphone -- a real but coarse two-party split, not per-individual diarization like Deepgram/Soniox. Writes output in the same format as crash recovery, so `heimdall analyze --file <path>` picks it up directly.
+
+### `heimdall model download <size>`
+
+Downloads a Whisper model (`tiny`, `base`, `small`, `medium`, `large`) to `~/.heimdall/models/` for use with `heimdall transcribe`.
+
+```bash
+heimdall model download base
 ```
 
 ### `heimdall eval`

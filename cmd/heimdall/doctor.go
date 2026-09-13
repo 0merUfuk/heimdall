@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/0merUfuk/heimdall/internal/config"
+	"github.com/0merUfuk/heimdall/internal/localstt"
 )
 
 // screenRecordingRunner is the hook used by the Screen Recording permission
@@ -148,6 +149,24 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		passed++
 	default:
 		fmt.Printf("  [FAIL] Neither ANTHROPIC_API_KEY nor a claude CLI on PATH -- Claude analysis will be skipped\n")
+	}
+
+	// Check the whisper-cli binary for local transcription (heimdall
+	// transcribe). Fully optional -- Deepgram/Soniox remain the default
+	// transcription path -- so absence is informational, matching the
+	// Soniox/claude-code pattern above.
+	total++
+	if path, err := exec.LookPath("whisper-cli"); err == nil {
+		modelDir := localstt.ModelDir()
+		if entries, derr := os.ReadDir(modelDir); derr == nil && len(entries) > 0 {
+			fmt.Printf("  [pass] whisper-cli found (%s) -- local transcription available, model(s) downloaded\n", path)
+		} else {
+			fmt.Printf("  [info] whisper-cli found (%s) -- run 'heimdall model download base' to enable local transcription\n", path)
+		}
+		passed++
+	} else {
+		fmt.Printf("  [info] whisper-cli not found (optional; brew install whisper-cpp for local, offline transcription)\n")
+		passed++
 	}
 
 	// Check heimdall-audio binary.
