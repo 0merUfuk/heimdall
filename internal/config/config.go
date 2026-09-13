@@ -59,6 +59,13 @@ type SonioxConfig struct {
 type ClaudeConfig struct {
 	APIKey string `yaml:"api_key"`
 	Model  string `yaml:"model"`
+
+	// Analyzer selects the meeting-analysis backend: "api" (default, calls
+	// the Anthropic Messages API directly with APIKey) or "claude-code"
+	// (shells out to a local, already-authenticated `claude` CLI so a user
+	// with a Claude subscription doesn't need a separate API key). See
+	// internal/analyzer.ProviderAPI / ProviderClaudeCode.
+	Analyzer string `yaml:"analyzer,omitempty"`
 }
 
 // ObsidianConfig holds Obsidian vault configuration.
@@ -219,19 +226,26 @@ func (c *Config) Validate() error {
 	}
 
 	// Claude validation.
-	if c.Claude.APIKey == "" {
-		return fmt.Errorf("claude.api_key is required")
+	switch c.Claude.Analyzer {
+	case "", "api", "claude-code":
+	default:
+		return fmt.Errorf("claude.analyzer: unknown value %q (use \"api\" or \"claude-code\")", c.Claude.Analyzer)
+	}
+	// api_key is only required for the "api" backend (the default, including
+	// an unset Analyzer field). "claude-code" shells out to a local `claude`
+	// login instead and never touches this key.
+	if c.Claude.Analyzer != "claude-code" && c.Claude.APIKey == "" {
+		return fmt.Errorf("claude.api_key is required (or set claude.analyzer: claude-code to use a local Claude Code login instead)")
 	}
 	if c.Claude.Model == "" {
 		return fmt.Errorf("claude.model is required")
 	}
-	validClaudeModels := map[string]bool{
-		"claude-haiku-4-5": true, "claude-sonnet-4-5": true,
-		"claude-sonnet-4-6": true, "claude-opus-4-5": true,
-		"claude-opus-4-6": true,
-	}
-	if !isEnvVarRef(c.Claude.Model) && !validClaudeModels[c.Claude.Model] {
-		return fmt.Errorf("claude.model: unknown model %q", c.Claude.Model)
+	// Exact-enum validation for Claude model IDs goes stale within months of
+	// being written (this project has already shipped two rounds of drift
+	// here). A shape check catches typos/garbage without needing a code
+	// change every time Anthropic ships a new model name.
+	if !isEnvVarRef(c.Claude.Model) && !strings.HasPrefix(c.Claude.Model, "claude-") {
+		return fmt.Errorf("claude.model: %q does not look like a Claude model id (expected a \"claude-...\" name)", c.Claude.Model)
 	}
 
 	// Obsidian validation.

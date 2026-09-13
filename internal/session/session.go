@@ -38,6 +38,13 @@ type MeetingSession struct {
 	// onSegment is called for each new segment received (for live display).
 	onSegment func(heimdall.Segment)
 
+	// onAudioFrame, if set, is called with each pre-downmix (stereo,
+	// L=system/R=mic) frame as it flows to the transcriber. Used to tap the
+	// stream for optional raw-audio persistence (internal/recording) without
+	// coupling this package to that concern -- session.go only knows "here
+	// is a frame," not what a caller does with it.
+	onAudioFrame func(heimdall.AudioFrame)
+
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -72,6 +79,13 @@ func NewMeetingSession(title string, system audio.AudioSource, mic audio.AudioSo
 // Must be called before Start.
 func (s *MeetingSession) OnSegment(fn func(heimdall.Segment)) {
 	s.onSegment = fn
+}
+
+// OnAudioFrame registers a callback invoked with each mixed audio frame
+// before it is downmixed and sent to the transcriber. Used for optional raw
+// -audio persistence (audio.save_recording). Must be called before Start.
+func (s *MeetingSession) OnAudioFrame(fn func(heimdall.AudioFrame)) {
+	s.onAudioFrame = fn
 }
 
 // Start initializes and starts the full pipeline:
@@ -304,6 +318,11 @@ func (s *MeetingSession) audioToTranscriber() {
 		case frame, ok := <-stream:
 			if !ok {
 				return
+			}
+			// Tap the pre-downmix stereo frame for optional raw-audio
+			// persistence before it's converted for the transcriber.
+			if s.onAudioFrame != nil {
+				s.onAudioFrame(frame)
 			}
 			// Downmix stereo to mono for diarization mode.
 			// The mixer outputs stereo (L=system, R=mic) per AD-007.
