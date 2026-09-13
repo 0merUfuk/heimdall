@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.1.0 (Unreleased)
+## v0.1.0 (2026-09-14)
 
 ### Added
 - `.github/workflows/release.yml` -- pushing a `v*` tag now runs GoReleaser on a macOS runner and publishes a GitHub Release, with archives, checksums, and an auto-generated changelog. `.goreleaser.yml` gained a `homebrew_casks` block that pushes an updated cask to a `homebrew-heimdall` tap on every release (PR #38). See `docs/RELEASING.md` for the one-time setup this depends on and the current code-signing gap.

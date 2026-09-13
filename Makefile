@@ -1,4 +1,4 @@
-VERSION ?= 0.1.0-dev
+VERSION ?= 0.1.0
 LDFLAGS := -ldflags "-X main.version=$(VERSION)"
 
 .PHONY: build clean test heimdall audio-helper audio-helper-universal lint doctor vuln eval
