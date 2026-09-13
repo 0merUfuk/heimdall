@@ -84,6 +84,29 @@ func (c *ClaudeAnalyzer) WithHTTPClient(client *http.Client) *ClaudeAnalyzer {
 // On all retries exhausted, returns a partial MeetingNote with the raw transcript.
 // Never returns nil -- always returns something usable.
 func (c *ClaudeAnalyzer) Summarize(ctx context.Context, segments []heimdall.Segment, opts heimdall.AnalyzeOpts) (*heimdall.MeetingNote, error) {
+	model := opts.Model
+	if model == "" {
+		model = DefaultModel
+	}
+
+	return summarizeWithRetry(ctx, segments, opts, func(ctx context.Context, userPrompt string) (string, error) {
+		return c.callAPI(ctx, model, userPrompt)
+	})
+}
+
+// callOnceFunc performs a single analysis call against some backend
+// (Anthropic API, `claude -p` subprocess, ...) and returns the model's raw
+// text response. It must NOT itself retry -- summarizeWithRetry owns retry
+// policy so every Analyzer implementation behaves identically under failure.
+type callOnceFunc func(ctx context.Context, userPrompt string) (string, error)
+
+// summarizeWithRetry implements the retry-with-backoff, parse, and
+// fallback-on-exhaustion orchestration shared by every Analyzer
+// implementation (V-009). callOnce performs one backend-specific call;
+// everything else -- empty-transcript short-circuit, prompt construction,
+// exponential backoff, JSON parsing, and the fallback note on exhaustion --
+// is identical regardless of which backend is answering.
+func summarizeWithRetry(ctx context.Context, segments []heimdall.Segment, opts heimdall.AnalyzeOpts, callOnce callOnceFunc) (*heimdall.MeetingNote, error) {
 	// Handle empty or nil segments.
 	if len(segments) == 0 {
 		return &heimdall.MeetingNote{
@@ -98,11 +121,6 @@ func (c *ClaudeAnalyzer) Summarize(ctx context.Context, segments []heimdall.Segm
 		}, nil
 	}
 
-	model := opts.Model
-	if model == "" {
-		model = DefaultModel
-	}
-
 	userPrompt := buildUserPrompt(segments, opts)
 
 	var lastErr error
@@ -112,20 +130,20 @@ func (c *ClaudeAnalyzer) Summarize(ctx context.Context, segments []heimdall.Segm
 			delay := retryDelays[attempt-1]
 			select {
 			case <-ctx.Done():
-				return c.buildFallbackNote(segments, fmt.Errorf("context cancelled during retry: %w", ctx.Err())), ctx.Err()
+				return buildFallbackNote(segments, fmt.Errorf("context cancelled during retry: %w", ctx.Err())), ctx.Err()
 			case <-time.After(delay):
 			}
 		}
 
-		result, err := c.callAPI(ctx, model, userPrompt)
+		result, err := callOnce(ctx, userPrompt)
 		if err != nil {
 			lastErr = err
 			continue
 		}
 
-		note, err := c.parseResponse(result, segments)
+		note, err := parseAnalysisResponse(result, segments)
 		if err != nil {
-			lastErr = fmt.Errorf("parsing Claude response: %w", err)
+			lastErr = fmt.Errorf("parsing analysis response: %w", err)
 			continue
 		}
 
@@ -133,7 +151,7 @@ func (c *ClaudeAnalyzer) Summarize(ctx context.Context, segments []heimdall.Segm
 	}
 
 	// All retries exhausted -- return fallback note (V-009).
-	return c.buildFallbackNote(segments, lastErr), nil
+	return buildFallbackNote(segments, lastErr), nil
 }
 
 // apiRequest is the request body for the Anthropic Messages API.
@@ -292,8 +310,11 @@ type analysisResult struct {
 	MeetingType string `json:"meeting_type"`
 }
 
-// parseResponse parses Claude's JSON response into a MeetingNote.
-func (c *ClaudeAnalyzer) parseResponse(text string, segments []heimdall.Segment) (*heimdall.MeetingNote, error) {
+// parseAnalysisResponse parses a Claude analysis response (from either the
+// direct API or a `claude -p` subprocess) into a MeetingNote. Shared by every
+// Analyzer implementation so the JSON schema and error handling stay in one
+// place.
+func parseAnalysisResponse(text string, segments []heimdall.Segment) (*heimdall.MeetingNote, error) {
 	// Strip markdown code fences if present (Claude sometimes wraps JSON in ```json ... ```).
 	text = stripCodeFences(text)
 	text = strings.TrimSpace(text)
@@ -377,8 +398,8 @@ func (c *ClaudeAnalyzer) parseResponse(text string, segments []heimdall.Segment)
 
 // buildFallbackNote creates a partial MeetingNote when analysis fails (V-009).
 // It includes the raw transcript segments and an error summary.
-// Never returns nil.
-func (c *ClaudeAnalyzer) buildFallbackNote(segments []heimdall.Segment, lastErr error) *heimdall.MeetingNote {
+// Never returns nil. Shared by every Analyzer implementation.
+func buildFallbackNote(segments []heimdall.Segment, lastErr error) *heimdall.MeetingNote {
 	summary := fallbackSummary
 	if lastErr != nil {
 		summary = fmt.Sprintf("%s (error: %v)", fallbackSummary, lastErr)

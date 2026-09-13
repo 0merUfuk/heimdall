@@ -24,17 +24,8 @@ const (
 	// samplesPerFrame is the number of mono samples per output frame at 16kHz/20ms.
 	samplesPerFrame = 320 // 16000 * 0.020
 
-	// systemSamplesPerFrame is the number of mono samples needed from the system
-	// audio source at 48kHz for one output frame. 48000 * 0.020 = 960.
-	// After stereo-to-mono: 960 stereo pairs = 1920 float32 values.
-	systemSamplesPerFrame = 960
-
 	// outputChanSize is the buffered channel capacity for output frames.
 	outputChanSize = 100
-
-	// sourceReadTimeout is how long to wait for a frame from a source before
-	// treating it as silence for that cycle.
-	sourceReadTimeout = 50 * time.Millisecond
 )
 
 // Mixer consumes two AudioSource streams (system audio + microphone), resamples,
@@ -54,10 +45,10 @@ type Mixer struct {
 	wg           sync.WaitGroup
 
 	// Internal sample buffers for absorbing timing differences between sources.
-	sysBuf  []int16 // resampled system audio samples (mono, 16kHz, int16)
-	micBuf  []int16 // mic samples (mono, 16kHz, int16)
-	sysMu   sync.Mutex
-	micMu   sync.Mutex
+	sysBuf []int16 // resampled system audio samples (mono, 16kHz, int16)
+	micBuf []int16 // mic samples (mono, 16kHz, int16)
+	sysMu  sync.Mutex
+	micMu  sync.Mutex
 
 	// elapsed tracks the current output timestamp.
 	elapsed time.Duration
@@ -275,10 +266,7 @@ func (m *Mixer) drainSysSamples(n int) []int16 {
 		return nil
 	}
 
-	take := n
-	if take > len(m.sysBuf) {
-		take = len(m.sysBuf)
-	}
+	take := min(n, len(m.sysBuf))
 
 	samples := make([]int16, take)
 	copy(samples, m.sysBuf[:take])
@@ -297,10 +285,7 @@ func (m *Mixer) drainMicSamples(n int) []int16 {
 		return nil
 	}
 
-	take := n
-	if take > len(m.micBuf) {
-		take = len(m.micBuf)
-	}
+	take := min(n, len(m.micBuf))
 
 	samples := make([]int16, take)
 	copy(samples, m.micBuf[:take])
@@ -308,4 +293,3 @@ func (m *Mixer) drainMicSamples(n int) []int16 {
 
 	return samples
 }
-

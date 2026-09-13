@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/0merUfuk/heimdall/internal/config"
+	"github.com/0merUfuk/heimdall/internal/localstt"
 )
 
 // screenRecordingRunner is the hook used by the Screen Recording permission
@@ -121,13 +122,51 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		passed++ // opt-in provider; absence is not a failure
 	}
 
-	// Check Anthropic API key.
+	// Check Anthropic API key. Not a hard failure on its own: --analyzer
+	// claude-code (checked next) is a valid alternative path to analysis.
 	total++
-	if os.Getenv("ANTHROPIC_API_KEY") != "" {
+	hasAPIKey := os.Getenv("ANTHROPIC_API_KEY") != ""
+	if hasAPIKey {
 		fmt.Printf("  [pass] Anthropic API key configured\n")
 		passed++
 	} else {
-		fmt.Printf("  [FAIL] ANTHROPIC_API_KEY not set -- Claude analysis will be skipped\n")
+		fmt.Printf("  [info] ANTHROPIC_API_KEY not set (needed for the default --analyzer api; not needed for --analyzer claude-code)\n")
+	}
+
+	// Check the claude CLI for --analyzer claude-code. Optional: the default
+	// --analyzer is "api", so absence here is informational, not a failure,
+	// mirroring the Soniox API key check above. Passes the overall doctor
+	// count when EITHER analysis path is usable, so a user who only set up
+	// one of the two is not told to "fix" the other.
+	total++
+	claudeCodePath, claudeCodeErr := exec.LookPath("claude")
+	switch {
+	case claudeCodeErr == nil:
+		fmt.Printf("  [pass] claude CLI found (%s) -- --analyzer claude-code available\n", claudeCodePath)
+		passed++
+	case hasAPIKey:
+		fmt.Printf("  [info] claude CLI not found on PATH (optional, for --analyzer claude-code)\n")
+		passed++
+	default:
+		fmt.Printf("  [FAIL] Neither ANTHROPIC_API_KEY nor a claude CLI on PATH -- Claude analysis will be skipped\n")
+	}
+
+	// Check the whisper-cli binary for local transcription (heimdall
+	// transcribe). Fully optional -- Deepgram/Soniox remain the default
+	// transcription path -- so absence is informational, matching the
+	// Soniox/claude-code pattern above.
+	total++
+	if path, err := exec.LookPath("whisper-cli"); err == nil {
+		modelDir := localstt.ModelDir()
+		if entries, derr := os.ReadDir(modelDir); derr == nil && len(entries) > 0 {
+			fmt.Printf("  [pass] whisper-cli found (%s) -- local transcription available, model(s) downloaded\n", path)
+		} else {
+			fmt.Printf("  [info] whisper-cli found (%s) -- run 'heimdall model download base' to enable local transcription\n", path)
+		}
+		passed++
+	} else {
+		fmt.Printf("  [info] whisper-cli not found (optional; brew install whisper-cpp for local, offline transcription)\n")
+		passed++
 	}
 
 	// Check heimdall-audio binary.

@@ -1,82 +1,76 @@
-**Version**: 3.2
+**Version**: 4.0
 **Created**: 2026-03-28
-**Last Updated**: 2026-05-29
+**Last Updated**: 2026-09-13
 **Authors:** Omer Ufuk
 
 ---
 
 # Heimdall -- Service Context
 
-## Current State
+## Current State (verified against code, not assumed from prior docs)
 
-v1.0 feature-complete through PR #24 (first-run consent banner + doctor Screen Recording preflight). Soniox transcriber added as a Phase 2 spike (PRs #26, #27). Pipeline tested. 18 of 19 MASTER_PLAN subtasks complete — 1E.2 (final review + release) open; `tasks/todo.md` is now the canonical live tracker for the v0.1.0 finishing push.
+**On `main` right now**: feature-complete through the v0.1.0 scope (Deepgram + Soniox transcription, Claude API analysis, Obsidian output, crash recovery, consent, profiles), but **CI has been red since 2026-07-19** (3 govulncheck-flagged Go stdlib CVEs against the pinned go1.25.10 toolchain) and **no v0.1.0 tag has ever been cut**. The repo went dormant between 2026-07-19 and 2026-09-13 with only docs-only commits (productization strategy v1-v3, agent-runtime scaffolding) landing directly on `main`.
 
-- **Status**: v0.1.0 finishing push (in progress) — 18/19 MASTER_PLAN subtasks complete, pending v0.1.0 release tag (see NEXT_STEPS)
-- **Execution plan**: `docs/MASTER_PLAN.md` -- 18/19 subtasks complete (1E.2 — final review + release — pending); `tasks/todo.md` tracks live work
-- **Strategy**: `docs/STRATEGY_V2.md` -- post-grill execution plan
+**In open PRs, pending merge** (built 2026-09-13, all green on `go test ./... -race -count=1`, blocked on owner merge action -- see below): four stacked PRs that fix the CI break and add substantial new capability. See "Open PRs" below for exact contents.
+
+**Merge status**: this session could open PRs, push branches, and run every verification step, but **`gh pr merge` is blocked by the harness's own auto-mode permission classifier** -- an owner action (click merge on GitHub, or approve the CLI merge) is required to get any of this onto `main`. This is not a code-readiness gap; it is a deliberate tooling boundary this session did not attempt to route around.
+
+- **Execution plan**: `docs/MASTER_PLAN.md` -- original 19-subtask plan, 18/19 complete (1E.2 final-release-tag still open)
+- **Strategy**: `docs/STRATEGY_V2.md` (engineering roadmap) + `docs/PRODUCTIZATION.md` v3 (open-core + $49 one-time Pro, monetization/distribution research-backed)
+- **Evaluation**: `docs/EVALUATION.md` (new, in PR #31) -- methodology for measuring Analyze-stage output quality
 - **Build**: `make build` produces `bin/heimdall` (Go) + `bin/heimdall-audio` (Swift)
-- **Tests**: 11 Go packages with tests (10 `internal/` + `cmd/heimdall`). NOT reliably green: `internal/transcriber` `TestReconnection_*` intermittently hangs under `-race`; in-flight fix on branch `fix/transcriber-reconnect-hang` (see KNOWN_ISSUES).
-- **Main HEAD**: `38a307a` (merge of PR #27 — Soniox scaffolding)
+- **Tests on `main`**: currently pass locally (`go test ./... -race -count=1`, 11 packages) but CI is red on `govulncheck` -- see Known Issues
+- **Tests across all 4 open PRs merged**: 14 packages, all green
 
 ---
 
-## Key PRs (merged to main)
+## Open PRs (2026-09-13 session, chronological/stacked order)
 
-| PR | Description |
-|----|-------------|
-| #27 | **fix(soniox)**: dropped-segment logging, provider-scoped `--language` fallback, language-ID disable for monolingual sessions, segments-channel close on server `finished:true`, `timeOffset` tracking on segment emit for reconnect correctness (merged 2026-04-22) |
-| #26 | **feat(soniox)**: SonioxTranscriber implementation + `SonioxConfig` (env-var resolution + secret masking) + `--transcriber` flag + doctor Soniox key check + `transcriber.NewFromName` factory (merged 2026-04-22) |
-| #25 | **docs**: post-wave3 sync — config path fixes (PRIVACY.md, SECURITY.md), CHANGELOG backfill for PRs #21-24, README `--consent-acknowledged` flag row, SERVICE_CONTEXT sync through PR #24 (merged 2026-04-22) |
-| #24 | **feat**: first-run recording-consent banner + doctor Screen Recording preflight (`--consent-acknowledged`, atomic `Config.Save`) |
-| #23 | **docs**: PRIVACY.md data-flow + BIPA notice, SECURITY.md disclosure, AD-011 ratifying Option A |
-| #22 | **feat**: `/sprint` skill for quick workplan status |
-| #21 | **fix/sec**: mask API keys in `config set/get/show` (SEC-01, SEC-02); assert `mip_opt_out=true` invariant on Deepgram URL |
-| #14 | **feat**: meeting profiles + config UX — zero-flag daily workflow |
-| #12 | **fix**: add user-facing guardrails for all failure paths |
-| #11 | **fix**: switch from multichannel to mono+diarize for N-speaker meetings (see ID-001) |
-| #10 | **fix**: add validation to config init and config set |
-| #9 | **docs**: comprehensive documentation refresh — align all docs with code |
-| #8 | **31-bug sweep** -- root cause fix (diarize+multichannel), error visibility, 25 more fixes |
-| #7 | Final review -- data race fix, config-aware model, CHANGELOG |
-| #6 | Security review -- file permissions, prompt sanitization, path traversal |
-| #5 | Integration tests, LICENSE, distribution config |
-| #1-4 | Phase 0-1 implementation (all pipeline stages) |
+Each PR is stacked on the previous (linear history), so they must merge in this order: #29 -> #30 -> #31 -> #32.
+
+| PR | Branch | Contents |
+|----|--------|----------|
+| [#29](https://github.com/0merUfuk/heimdall/pull/29) | `fix/ci-toolchain-cve-bump` | Fixes the 2-month CI break: go1.25.10 -> 1.27.1 (go.mod + ci.yml), plus a README/CHANGELOG cleanup. Root cause: 3 stdlib CVEs disclosed against 1.25.10 after it was pinned; 1.25 is now outside Go's two-latest-majors security-backport window. |
+| [#30](https://github.com/0merUfuk/heimdall/pull/30) | `feat/claude-code-analyzer` | New `ClaudeCodeAnalyzer` (`internal/analyzer/claudecode.go`): `--analyzer claude-code` shells out to a local, already-logged-in `claude` CLI instead of the Anthropic API -- no separate `ANTHROPIC_API_KEY` needed for users with an existing Claude subscription. Retry/fallback logic (V-009) extracted into a shared `summarizeWithRetry` so both backends degrade identically. Also fixed a real bug: `config.Validate()`'s Claude-model allowlist rejected the current real model (`claude-sonnet-5`) while accepting a fictitious one -- replaced with a shape check. |
+| [#31](https://github.com/0merUfuk/heimdall/pull/31) | `feat/eval-system` | New `internal/eval` package + `heimdall eval` command: 7 golden transcripts, 10 deterministic checks (coverage, anti-hallucination, prompt-injection resistance, multilingual consistency), optional `--judge` LLM-as-judge scoring. First real measurement of Analyze-stage output quality this project has ever had -- previously only httptest-mocked plumbing tests existed. See `docs/EVALUATION.md`. |
+| [#32](https://github.com/0merUfuk/heimdall/pull/32) | `feat/save-audio-recording` | Two coupled features: (1) `--save-audio` / `audio.save_recording` actually works now -- this config field existed since the MVP spec but was never wired to anything; new `internal/recording` WAV writer + `MeetingSession.OnAudioFrame` hook. (2) `heimdall transcribe` -- fully offline local transcription via a new `internal/localstt` package wrapping `whisper-cli` (`brew install whisper-cpp`) in batch mode, plus `heimdall model download <size>`. whisper.cpp's actual `--diarize` flag and `--output-json` schema were verified empirically (real binary, synthetic audio, real end-to-end smoke test) before writing the parser -- see `.claude/DECISIONS.md` ID-008. Also fixed a second real bug found in passing: `internal/recovery`'s filename sanitizer still stripped Turkish characters even though `internal/output`'s was fixed for this in the 31-bug sweep; consolidated into one shared `heimdall.SanitizeFilename`. |
+
+New architectural decisions from this work: `.claude/DECISIONS.md` ID-005 through ID-008.
 
 ---
 
 ## Implemented Packages
 
-| Package | Purpose | Key Files |
-|---------|---------|-----------|
-| `internal/heimdall` | Shared types (AudioFrame, Segment, MeetingNote) | types.go |
-| `internal/audio` | AudioSource interface + MicrophoneSource + SystemAudioSource | source.go, microphone.go, system.go |
-| `internal/mixer` | Resample 48->16kHz, interleave stereo (L=system, R=mic) — downmixed to mono by session.go before Deepgram (see ID-001) | mixer.go, resample.go |
-| `internal/transcriber` | Transcriber interface + DeepgramTranscriber and SonioxTranscriber (WebSocket) + `NewFromName` provider factory | transcriber.go, deepgram.go, soniox.go, factory.go |
-| `internal/analyzer` | Analyzer interface + ClaudeAnalyzer (Anthropic API) | analyzer.go, claude.go, prompts.go |
-| `internal/output` | Writer interface + ObsidianWriter (Go templates) | writer.go, renderer.go |
-| `internal/config` | YAML config, env var resolution, validation; atomic `Save` (temp+rename, V-006) | config.go, defaults.go |
-| `internal/consent` | First-run recording-consent banner + persistent acknowledgement (PR #24) | consent.go |
-| `internal/recovery` | Crash recovery (atomic writes every 30s) | recovery.go |
-| `internal/session` | MeetingSession orchestrator (wires stages 1-4) | session.go |
-| `cmd/heimdall` | CLI commands: main.go, record.go (incl. `--transcriber` flag), doctor.go (incl. Soniox key check), list.go, config.go, recover.go (registers `recover` + `analyze`), secrets.go, version.go | 8 files |
+| Package | Purpose | Status |
+|---------|---------|--------|
+| `internal/heimdall` | Shared types (AudioFrame, Segment, MeetingNote) + `SanitizeFilename` (shared, PR #32) | main + PR #32 |
+| `internal/audio` | AudioSource interface + MicrophoneSource + SystemAudioSource | main |
+| `internal/mixer` | Resample 48->16kHz, interleave stereo (L=system, R=mic) -- downmixed to mono by session.go before Deepgram (ID-001) | main |
+| `internal/transcriber` | Transcriber interface (streaming) + DeepgramTranscriber + SonioxTranscriber + `NewFromName` factory | main |
+| `internal/localstt` | **New (PR #32)**. Batch (non-streaming) local transcription via whisper-cli subprocess. Deliberately NOT a `Transcriber` implementation -- see DECISIONS.md ID-007 for why. | PR #32 |
+| `internal/analyzer` | Analyzer interface + ClaudeAnalyzer (API) + **ClaudeCodeAnalyzer (PR #30, subprocess)** + `NewFromName` factory + shared `summarizeWithRetry` | main + PR #30 |
+| `internal/eval` | **New (PR #31)**. Golden-fixture quality suite for the Analyze stage. | PR #31 |
+| `internal/output` | Writer interface + ObsidianWriter (Go templates); filename sanitizer now delegates to `heimdall.SanitizeFilename` (PR #32) | main + PR #32 |
+| `internal/recording` | **New (PR #32)**. WAV writer for `--save-audio`. | PR #32 |
+| `internal/config` | YAML config, env var resolution, validation (loosened Claude-model check, PR #30; `claude.analyzer` field, PR #30) | main + PR #30 |
+| `internal/consent` | First-run recording-consent banner | main |
+| `internal/recovery` | Crash recovery (atomic writes every 30s); filename sanitizer fixed for Turkish (PR #32) | main + PR #32 |
+| `internal/session` | MeetingSession orchestrator; new `OnAudioFrame` hook (PR #32) | main + PR #32 |
+| `cmd/heimdall` | CLI commands -- see below | main + PRs #30-32 |
 
 ---
 
 ## CLI Commands
 
-| Command | Purpose |
-|---------|---------|
-| `heimdall record` | Full pipeline recording (supports `--profile` and `--transcriber deepgram|soniox`) |
-| `heimdall doctor` | Check prerequisites (validates macOS >= 14.2; reports Deepgram, Soniox, Anthropic key status) |
-| `heimdall list` | List past meeting notes |
-| `heimdall config init` | Interactive first-run wizard |
-| `heimdall config get <key>` | Read a dotted-path value (e.g. `obsidian.vault_path`) |
-| `heimdall config set <key> <value>` | Write a value |
-| `heimdall config show` | Print full config |
-| `heimdall config edit` | Open config in $EDITOR |
-| `heimdall config path` | Print config file path |
-| `heimdall config add-profile <name>` | Define a meeting profile (PR #14) |
-| `heimdall config profiles` | List available profiles |
-| `heimdall recover` | Scan for orphaned recovery files and re-analyze them |
-| `heimdall analyze --file <path>` | Re-analyze a specific recovery transcript JSON file |
-| `heimdall version` | Print version info |
+| Command | Purpose | Availability |
+|---------|---------|--------------|
+| `heimdall record` | Full pipeline recording (`--profile`, `--transcriber deepgram\|soniox`, `--analyzer api\|claude-code` [PR #30], `--save-audio` [PR #32]) | main + PRs |
+| `heimdall doctor` | Check prerequisites (macOS version, API keys, audio permissions, vault path, claude CLI [PR #30], whisper-cli [PR #32]) | main + PRs |
+| `heimdall list` | List past meeting notes | main |
+| `heimdall config init/get/set/show/edit/path/add-profile/profiles` | Configuration management | main |
+| `heimdall recover` | Scan for orphaned recovery files and re-analyze (`--analyzer` in PR #30) | main + PR #30 |
+| `heimdall analyze --file <path>` | Re-analyze a specific recovery transcript JSON file (`--analyzer` in PR #30) | main + PR #30 |
+| `heimdall transcribe --file <wav>` | **New (PR #32)**. Local offline transcription via Whisper. | PR #32 |
+| `heimdall model download <size>` | **New (PR #32)**. Fetch a ggml Whisper model. | PR #32 |
+| `heimdall eval` | **New (PR #31)**. Meeting-analysis quality suite. | PR #31 |
+| `heimdall version` | Print version info | main |
