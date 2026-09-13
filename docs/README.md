@@ -1,8 +1,8 @@
 # Heimdall — Documentation Index
 
-**Version**: 1.0
+**Version**: 1.1
 **Created**: 2026-03-28
-**Last Updated**: 2026-04-18
+**Last Updated**: 2026-09-13
 **Authors:** Omer Ufuk
 
 ---
@@ -13,6 +13,10 @@
 |----------|---------|--------|
 | [MASTER_PLAN.md](MASTER_PLAN.md) | 19-subtask execution plan with dependency graph and acceptance criteria | 18/19 complete |
 | [STRATEGY_V2.md](STRATEGY_V2.md) | Post-grill strategic pivot — local-first, Obsidian-native, MCP-first (supersedes architecture/STRATEGY.md) | Current |
+| [PRODUCTIZATION.md](PRODUCTIZATION.md) | Open-core + $49 one-time Pro monetization model (v3, research-backed) | Current |
+| [MONETIZATION_RESEARCH.md](MONETIZATION_RESEARCH.md) | Competitive pricing research behind PRODUCTIZATION.md | Reference |
+| [DISTRIBUTION_RESEARCH.md](DISTRIBUTION_RESEARCH.md) | Launch-channel and distribution research behind PRODUCTIZATION.md | Reference |
+| [EVALUATION.md](EVALUATION.md) | How the Analyze stage's output quality is measured (`heimdall eval`) | Current |
 | [GRILL_REPORT.md](GRILL_REPORT.md) | 20-agent grill audit that produced STRATEGY_V2 | Historical |
 | [MANUAL_TESTING.md](MANUAL_TESTING.md) | Step-by-step end-to-end manual test scenarios (7 scenarios + smoke test) | Current |
 

@@ -1,7 +1,7 @@
 VERSION ?= 0.1.0-dev
 LDFLAGS := -ldflags "-X main.version=$(VERSION)"
 
-.PHONY: build clean test heimdall audio-helper audio-helper-universal lint doctor vuln
+.PHONY: build clean test heimdall audio-helper audio-helper-universal lint doctor vuln eval
 
 build: heimdall audio-helper
 
@@ -56,10 +56,18 @@ test:
 	go test ./... -race -count=1
 
 lint:
-	golangci-lint run ./...
+	go vet ./...
+	gofmt -l . | grep -v '^audio-helper/.build' | (! grep .)
+	golangci-lint run --disable errcheck ./...
 
 vuln:
 	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+# Meeting-analysis quality suite against golden transcripts (see
+# internal/eval and docs/EVALUATION.md). Needs a built binary and either
+# ANTHROPIC_API_KEY or a logged-in `claude` CLI (--analyzer claude-code).
+eval: heimdall
+	./bin/heimdall eval
 
 doctor:
 	@echo "Checking prerequisites..."

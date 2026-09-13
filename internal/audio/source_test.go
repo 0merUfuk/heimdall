@@ -91,7 +91,7 @@ func TestAudioSource_StreamIsReadOnly(t *testing.T) {
 
 	// The returned channel must be usable as a read-only channel.
 	// This is enforced at compile time by the interface signature (<-chan AudioFrame).
-	var roCh <-chan heimdall.AudioFrame = ch
+	roCh := ch
 	if roCh == nil {
 		t.Fatal("stream channel should not be nil")
 	}
