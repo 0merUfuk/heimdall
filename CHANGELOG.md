@@ -29,6 +29,7 @@
 - Lock `mip_opt_out=true` invariant on the Deepgram WebSocket URL via test assertions so a regression cannot silently re-enable model-training retention (PR #21).
 
 ### Fixed
+- CI had been red on `main` since 2026-07-19: `govulncheck` flagged 3 Go stdlib CVEs (GO-2026-5856, GO-2026-5039, GO-2026-5037) disclosed against go1.25.10 after it was pinned. Bumped the toolchain to go1.25.10 -> 1.27.1 (go.mod + CI workflow); Go only backports security fixes to the latest two majors, so this moves onto current stable rather than chasing 1.25.x patches.
 - Soniox: log dropped transcript segments (speaker, timestamp, truncated text) instead of discarding them silently when the output channel is full; the drop stays non-blocking but is now observable (PR #27).
 - Soniox: scope the `--language` config fallback to the active provider so a `deepgram.language` config value no longer bleeds into a `--transcriber soniox` session (and vice versa) (PR #27).
 - Soniox: disable `enable_language_identification` for monolingual sessions; the flag is only set for the multi/auto TR+EN code-switched path (PR #27).
