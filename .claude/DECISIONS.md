@@ -95,3 +95,16 @@
 **Decision**: Added a `profiles:` map to config.yaml. Each profile can set title, language, participants, and keywords. The `heimdall record --profile daily` flag applies the profile; explicit CLI flags override profile values. Two new subcommands: `heimdall config add-profile <name>` and `heimdall config profiles`.
 
 **Consequences**: Zero-flag daily workflow for the common case. Config schema extended; existing configs without `profiles:` continue to work.
+
+### ID-005: Analyzer cost/latency observability -- log token counts, not a computed dollar estimate
+
+**Date**: 2026-09-13
+
+**Context**: `internal/analyzer/claude.go`'s `apiResponse` struct already parsed `usage.input_tokens`/`usage.output_tokens` from every Anthropic API response, but nothing ever read those fields after parsing -- no logging, no surfacing, nothing. There was zero cost/latency observability anywhere in the one LLM stage of the pipeline.
+
+**Decision**: `callAPI` now wraps its implementation (renamed `doCallAPI`) with timing, and logs `model`, `input_tokens`, `output_tokens`, and `latency` on every successful call. Deliberately logs raw token counts, not a computed dollar figure. This project's own history is the reason: `docs/GRILL_REPORT.md` found `AD-002`'s hardcoded Deepgram price was wrong (claimed mono rate, Deepgram actually bills stereo+diarization at 2x that) and had to be corrected after the fact. Baking a *second* hardcoded price constant into this logging path would just be a second place for that exact kind of drift to go unnoticed -- token counts never go stale, a `$/token` constant does. README's "Cost Per Meeting" table remains the one place a dollar estimate lives, updated by hand when pricing changes.
+
+**Consequences**:
+- Real per-call observability exists now (`analyzer: model=claude-haiku-4-5 input_tokens=1842 output_tokens=412 latency=1.203s`), usable for debugging slow/expensive analyses or a future `heimdall stats`-style command, without owning a pricing table that can silently go wrong.
+- `ClaudeCodeAnalyzer` (the `--analyzer claude-code` subprocess backend, a separate branch's work) is not covered by this change -- its own `claude -p --output-format json` envelope already reports `total_cost_usd` directly from the CLI's own live accounting, which is authoritative in a way a hardcoded constant here could never be. Wiring that through is a natural next step once both branches share a base, not duplicated logic to add now.
+- `doCallAPI` is a pure internal refactor (return signature grew a value, not observably different to any caller) -- covered by two new tests asserting the log line's exact content on success and its absence on total failure, not just that `Summarize` still returns the right note.
