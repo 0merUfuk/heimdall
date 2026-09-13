@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -198,6 +199,33 @@ type apiErrorResponse struct {
 
 // callAPI makes a single API call to the Anthropic Messages endpoint.
 func (c *ClaudeAnalyzer) callAPI(ctx context.Context, model, userPrompt string) (string, error) {
+	start := time.Now()
+	text, usage, err := c.doCallAPI(ctx, model, userPrompt)
+	if err == nil {
+		// Cost/latency observability: token counts, deliberately not a
+		// dollar estimate. This project's own history (AD-002) already
+		// shows a hardcoded price figure going stale and silently wrong;
+		// README's "Cost Per Meeting" table is the one place a $ estimate
+		// lives, kept current by hand. A second, code-level price constant
+		// here would just be a second place for that same drift to happen
+		// invisibly.
+		log.Printf("analyzer: model=%s input_tokens=%d output_tokens=%d latency=%s",
+			model, usage.InputTokens, usage.OutputTokens, time.Since(start).Round(time.Millisecond))
+	}
+	return text, err
+}
+
+// apiUsage carries token counts back to callAPI for latency/usage logging.
+// Deliberately just counts, not a dollar estimate -- see callAPI's comment.
+type apiUsage struct {
+	InputTokens  int
+	OutputTokens int
+}
+
+// doCallAPI is callAPI's implementation, split out so callAPI can wrap it
+// uniformly with latency/usage logging regardless of which return path is
+// taken.
+func (c *ClaudeAnalyzer) doCallAPI(ctx context.Context, model, userPrompt string) (string, apiUsage, error) {
 	reqBody := apiRequest{
 		Model:     model,
 		MaxTokens: defaultMaxTokens,
@@ -209,13 +237,13 @@ func (c *ClaudeAnalyzer) callAPI(ctx context.Context, model, userPrompt string) 
 
 	bodyBytes, err := json.Marshal(reqBody)
 	if err != nil {
-		return "", fmt.Errorf("marshalling request: %w", err)
+		return "", apiUsage{}, fmt.Errorf("marshalling request: %w", err)
 	}
 
 	url := c.baseURL + "/v1/messages"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
 	if err != nil {
-		return "", fmt.Errorf("creating request: %w", err)
+		return "", apiUsage{}, fmt.Errorf("creating request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -224,36 +252,37 @@ func (c *ClaudeAnalyzer) callAPI(ctx context.Context, model, userPrompt string) 
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("calling Anthropic API: %w", err)
+		return "", apiUsage{}, fmt.Errorf("calling Anthropic API: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("reading response body: %w", err)
+		return "", apiUsage{}, fmt.Errorf("reading response body: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		var apiErr apiErrorResponse
 		if json.Unmarshal(respBody, &apiErr) == nil && apiErr.Error.Message != "" {
-			return "", fmt.Errorf("anthropic API error (status %d): %s: %s", resp.StatusCode, apiErr.Error.Type, apiErr.Error.Message)
+			return "", apiUsage{}, fmt.Errorf("anthropic API error (status %d): %s: %s", resp.StatusCode, apiErr.Error.Type, apiErr.Error.Message)
 		}
-		return "", fmt.Errorf("anthropic API error (status %d): %s", resp.StatusCode, string(respBody))
+		return "", apiUsage{}, fmt.Errorf("anthropic API error (status %d): %s", resp.StatusCode, string(respBody))
 	}
 
 	var apiResp apiResponse
 	if err := json.Unmarshal(respBody, &apiResp); err != nil {
-		return "", fmt.Errorf("unmarshalling response: %w", err)
+		return "", apiUsage{}, fmt.Errorf("unmarshalling response: %w", err)
 	}
+	usage := apiUsage{InputTokens: apiResp.Usage.InputTokens, OutputTokens: apiResp.Usage.OutputTokens}
 
 	// Extract text content from response blocks.
 	for _, block := range apiResp.Content {
 		if block.Type == "text" {
-			return block.Text, nil
+			return block.Text, usage, nil
 		}
 	}
 
-	return "", fmt.Errorf("no text content in API response")
+	return "", apiUsage{}, fmt.Errorf("no text content in API response")
 }
 
 // analysisResult is the JSON structure returned by Claude's analysis.
