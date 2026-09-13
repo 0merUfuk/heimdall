@@ -22,11 +22,15 @@ var recoverCmd = &cobra.Command{
 	Short: "Recover and process unfinished meeting transcripts",
 	Long: `Scans the recovery directory (~/.heimdall/recovery/) for orphaned
 transcript files from crashed or interrupted sessions. Offers to
-re-analyze them via Claude and write meeting notes to the Obsidian vault.`,
+re-analyze them via Claude and write meeting notes to the Obsidian vault.
+
+Use --analyzer claude-code to analyze via a local, already-logged-in
+'claude' CLI instead of ANTHROPIC_API_KEY.`,
 	RunE: runRecover,
 }
 
 var analyzeFile string
+var recoverAnalyzer string
 
 var analyzeCmd = &cobra.Command{
 	Use:   "analyze",
@@ -42,6 +46,8 @@ Example:
 func init() {
 	analyzeCmd.Flags().StringVar(&analyzeFile, "file", "", "path to recovery transcript JSON file (required)")
 	_ = analyzeCmd.MarkFlagRequired("file")
+	recoverCmd.Flags().StringVar(&recoverAnalyzer, "analyzer", "api", "meeting-analysis backend: api (default, needs ANTHROPIC_API_KEY) or claude-code (local claude login)")
+	analyzeCmd.Flags().StringVar(&recoverAnalyzer, "analyzer", "api", "meeting-analysis backend: api (default, needs ANTHROPIC_API_KEY) or claude-code (local claude login)")
 	rootCmd.AddCommand(recoverCmd)
 	rootCmd.AddCommand(analyzeCmd)
 }
@@ -70,11 +76,12 @@ func runRecover(cmd *cobra.Command, args []string) error {
 
 	fmt.Println()
 
-	// Check if Claude analysis is available.
+	// Check if Claude analysis is available for the selected backend.
 	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
-	if anthropicKey == "" {
+	if recoverAnalyzer != analyzer.ProviderClaudeCode && anthropicKey == "" {
 		fmt.Println("ANTHROPIC_API_KEY not set -- cannot re-analyze.")
 		fmt.Println("Set the key and run 'heimdall recover' again, or use:")
+		fmt.Println("  heimdall recover --analyzer claude-code   (reuse a local Claude Code login)")
 		fmt.Println("  heimdall analyze --file <path>")
 		return nil
 	}
@@ -108,9 +115,10 @@ func runAnalyze(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Loaded: %s (%d segments)\n", rf.Metadata.Title, len(rf.Segments))
 
 	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
-	if anthropicKey == "" {
+	if recoverAnalyzer != analyzer.ProviderClaudeCode && anthropicKey == "" {
 		return fmt.Errorf("ANTHROPIC_API_KEY environment variable is not set\n\n" +
-			"Set it with:\n  export ANTHROPIC_API_KEY=your_key_here")
+			"Set it with:\n  export ANTHROPIC_API_KEY=your_key_here\n" +
+			"or reuse a local Claude Code login:\n  heimdall analyze --file <path> --analyzer claude-code")
 	}
 
 	cfg, _ := config.Load(config.ConfigPath())
@@ -124,20 +132,30 @@ func runAnalyze(cmd *cobra.Command, args []string) error {
 }
 
 // analyzeRecoveryFile runs Claude analysis on a recovery file and writes the
-// meeting note to the Obsidian vault.
+// meeting note to the Obsidian vault. anthropicKey is ignored when
+// recoverAnalyzer selects the claude-code backend.
 func analyzeRecoveryFile(rf recovery.RecoveryFile, anthropicKey string, cfg *config.Config) error {
 	if len(rf.Segments) == 0 {
 		fmt.Println("  No segments to analyze -- skipping.")
 		return nil
 	}
 
-	// Determine the Claude model to use.
-	model := analyzer.DefaultModel
+	// Determine the model: config value, then fallback to the package
+	// default -- but only for the API backend (see record.go for the same
+	// rationale: claude-code should use the user's own `claude` default
+	// unless they've explicitly configured a model).
+	model := ""
 	if cfg != nil && cfg.Claude.Model != "" && !strings.HasPrefix(cfg.Claude.Model, "${") {
 		model = cfg.Claude.Model
 	}
+	if recoverAnalyzer != analyzer.ProviderClaudeCode && model == "" {
+		model = analyzer.DefaultModel
+	}
 
-	claude := analyzer.NewClaudeAnalyzer(anthropicKey)
+	claude, err := analyzer.NewFromName(recoverAnalyzer, anthropicKey)
+	if err != nil {
+		return err
+	}
 	opts := heimdall.AnalyzeOpts{
 		Model:    model,
 		Language: rf.Metadata.Language,
@@ -146,7 +164,11 @@ func analyzeRecoveryFile(rf recovery.RecoveryFile, anthropicKey string, cfg *con
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	fmt.Println("  Analyzing via Claude...")
+	if recoverAnalyzer == analyzer.ProviderClaudeCode {
+		fmt.Println("  Analyzing via Claude Code (local login)...")
+	} else {
+		fmt.Println("  Analyzing via Claude...")
+	}
 	note, err := claude.Summarize(ctx, rf.Segments, opts)
 	if err != nil {
 		return fmt.Errorf("Claude analysis failed: %w", err)

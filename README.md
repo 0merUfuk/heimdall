@@ -18,7 +18,9 @@ Named after the Norse god who could hear grass growing.
 - macOS 14.2+ (required for Core Audio Taps system audio capture)
 - Go 1.27+
 - Deepgram API key ([get one free](https://console.deepgram.com/))
-- Anthropic API key (optional -- required for meeting analysis)
+- For meeting analysis, one of:
+  - an Anthropic API key (`--analyzer api`, the default), or
+  - a local, logged-in [Claude Code](https://claude.com/claude-code) install (`--analyzer claude-code` -- reuses your existing Claude subscription, no separate API key)
 
 ## Quick Start
 
@@ -67,6 +69,7 @@ heimdall record --title "1:1 with Sarah" --participants "Sarah"
 heimdall record --title "Meeting" --language tr
 heimdall record --title "Mixed Meeting" --language multi
 heimdall record --title "Meeting" --keywords "Kubernetes,gRPC"
+heimdall record --title "Meeting" --analyzer claude-code
 ```
 
 | Flag | Description |
@@ -76,14 +79,24 @@ heimdall record --title "Meeting" --keywords "Kubernetes,gRPC"
 | `--language` | Transcription language code (default: `en`, use `multi` for auto-detect) |
 | `--keywords` | Comma-separated context keywords (Deepgram only; ignored under `--transcriber soniox`) |
 | `--transcriber` | Transcription provider: `deepgram` (default) or `soniox`. `soniox` requires `SONIOX_API_KEY` |
+| `--analyzer` | Meeting-analysis backend: `api` (default, needs `ANTHROPIC_API_KEY`) or `claude-code` (shells out to a local, logged-in `claude` CLI -- no API key needed) |
 | `--profile` | Use a named meeting profile from config (loads title, language, participants, keywords); explicit flags override profile values |
 | `--consent-acknowledged` | Acknowledge the recording-consent banner non-interactively (scripts/CI; does not persist to config) |
+
+#### Analysis backends
+
+heimdall never bundles its own model access -- Stage 5 (analysis) always calls out to a Claude backend you provide:
+
+- **`api`** (default): calls the Anthropic Messages API directly with `ANTHROPIC_API_KEY`. Billed per token; works anywhere, including CI/headless hosts.
+- **`claude-code`**: runs `claude -p` against your local [Claude Code](https://claude.com/claude-code) install. If you already pay for a Claude subscription (Pro/Max/Team) and have run `claude /login` once, this needs no separate API key and no extra cost per meeting. Requires the `claude` CLI on `PATH` and an active login; `heimdall doctor` reports its availability.
+
+Set a persistent default with `heimdall config set claude.analyzer claude-code` instead of passing `--analyzer` on every `record`/`recover`/`analyze` call.
 
 ### `heimdall doctor`
 
 Check all prerequisites: macOS version, API keys, audio permissions, vault path.
 
-The Soniox API key is checked as optional: `doctor` reports `[pass]` when `SONIOX_API_KEY` is set and `[info]` when it is not. Because Soniox is opt-in (`--transcriber soniox`), an unset key does not count as a failed check.
+The Soniox API key is checked as optional: `doctor` reports `[pass]` when `SONIOX_API_KEY` is set and `[info]` when it is not. Because Soniox is opt-in (`--transcriber soniox`), an unset key does not count as a failed check. The same pattern applies to Claude analysis: `doctor` passes as long as *either* `ANTHROPIC_API_KEY` or a working `claude` CLI is available, and only fails if neither is.
 
 ### `heimdall list`
 
@@ -106,7 +119,7 @@ heimdall config set claude.model claude-sonnet-5   # Set a value
 
 ### `heimdall recover`
 
-Scan the recovery directory for orphaned transcripts from crashed sessions and re-analyze them.
+Scan the recovery directory for orphaned transcripts from crashed sessions and re-analyze them. Accepts `--analyzer claude-code` like `record`.
 
 ### `heimdall analyze`
 
@@ -114,6 +127,7 @@ Re-analyze a specific recovery transcript file.
 
 ```bash
 heimdall analyze --file ~/.heimdall/recovery/2026-03-28T14-30-00-sprint-planning.json
+heimdall analyze --file ~/.heimdall/recovery/2026-03-28T14-30-00-sprint-planning.json --analyzer claude-code
 ```
 
 ### `heimdall version`
@@ -133,6 +147,7 @@ deepgram:
 claude:
   api_key: ${ANTHROPIC_API_KEY}
   model: claude-haiku-4-5
+  analyzer: api   # or "claude-code" to use a local Claude Code login instead of api_key
 
 obsidian:
   vault_path: ~/Documents/Obsidian/MyVault
