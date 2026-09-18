@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- `--analyzer ollama` -- fully on-device meeting analysis via a local [Ollama](https://ollama.com) server (`internal/analyzer/ollama.go`). With `heimdall transcribe`, the whole path from audio to Obsidian note is offline: no audio, transcript, or analysis leaves the machine. Default model `qwen3:14b`. Uses Ollama's **native** `/api/chat`, not its OpenAI/Anthropic-compatible endpoints: those cannot set the context window per request, and Ollama was measured silently truncating a 60-minute transcript to 4,096 tokens there while still returning valid, plausible JSON with early action items missing (`.claude/DECISIONS.md` ID-011). The context window is sized per transcript; a transcript that does not fit is refused with an actionable message, never truncated. Output is schema-constrained at decode time (`format`), reasoning is disabled for bounded extraction (`think:false`). New config section `ollama:` (`base_url`, `model`, `max_context`), all optional.
+- `--analyzer codex` -- analysis via a local, logged-in `codex` CLI (`codex exec`), the Codex counterpart of `claude-code`. Defaults to the cheapest reliable tier, `gpt-5.6-luna` at low reasoning effort (`codex.model` to override). Runs isolated from the user's Codex config, project docs, and repository (`--ignore-user-config --strict-config`, empty private temp dir, read-only sandbox, ephemeral session), with the system prompt passed as `developer_instructions` (ID-012).
+- `heimdall eval --model <name>` to evaluate a specific model on the selected backend.
+- `heimdall doctor` reports the `codex` CLI and Ollama (reachable + default model pulled); the analysis check now passes if any of the four backends is usable.
+- `config set` keys: `claude.analyzer`, `ollama.base_url`, `ollama.model`, `ollama.max_context`, `codex.model`.
+- Codex developer setup: project `.codex/config.toml` (cost-efficient model defaults for this repo only) and per-role `model` / `model_reasoning_effort` / `sandbox_mode` in `.codex/agents/*.toml`; `AGENTS.md` rewritten against current reality (ID-012).
+- Cloud environments: `scripts/cloud-setup.sh` for Codex cloud and Claude Code on the web (installs the go.mod Go version, a C compiler for cgo, pre-builds everything), wired into Claude Code on the web through a `.claude/settings.json` SessionStart hook. The full test suite passes on Linux under `-race` (ID-013).
+
+### Changed
+- The analysis prompt names the output language ("Turkish (tr)") instead of passing the bare code. Measured on `qwen3:14b`: the bare code produced English summaries of Turkish meetings, the named language produced Turkish. The language value is now sanitized like `--participants`/`--keywords`.
+- `recover`, `analyze`, and `eval` honor `claude.analyzer` from config when `--analyzer` is not passed (previously only `record` did, although README documented it for all of them).
+- Analysis timeouts are per backend: API and `claude-code` keep 120s; `ollama` gets 20 minutes and `codex` 10 minutes. `eval`'s per-fixture budget scales the same way.
+- `eval` passes the configured model for the selected backend (previously `claude-code` evals ignored `claude.model`).
+- `analyzer.NewFromName` takes an `analyzer.Settings` struct instead of a bare API key.
+
+### Fixed
+- A failed analysis no longer deletes the only re-analyzable copy of the meeting: `record`, `recover`, and `analyze` used to delete the recovery transcript after writing a *fallback* (raw-transcript) note. The file is now kept and the exact retry command is printed. heimdall never falls back from a local backend to a cloud one on its own.
+- `heimdall config set claude.analyzer ...`, documented in README, returned "unknown config key".
+- `${VAR}` references in config stopped resolving at the first unset variable: without `DEEPGRAM_API_KEY` (the first field, and typically unset on the fully local path) every later reference, e.g. `ollama.base_url: ${...}`, was silently left unresolved. All resolvable fields are now resolved and every unset variable is reported.
+
 ## v0.1.0 (2026-09-14)
 
 ### Added

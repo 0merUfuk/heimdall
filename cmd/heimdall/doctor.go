@@ -1,15 +1,19 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/0merUfuk/heimdall/internal/analyzer"
 	"github.com/0merUfuk/heimdall/internal/config"
 	"github.com/0merUfuk/heimdall/internal/localstt"
 )
@@ -122,33 +126,58 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		passed++ // opt-in provider; absence is not a failure
 	}
 
-	// Check Anthropic API key. Not a hard failure on its own: --analyzer
-	// claude-code (checked next) is a valid alternative path to analysis.
+	// Check Anthropic API key. Not a hard failure on its own: the
+	// claude-code, codex, and ollama backends (checked next) are valid
+	// alternative paths to analysis.
 	total++
 	hasAPIKey := os.Getenv("ANTHROPIC_API_KEY") != ""
 	if hasAPIKey {
 		fmt.Printf("  [pass] Anthropic API key configured\n")
 		passed++
 	} else {
-		fmt.Printf("  [info] ANTHROPIC_API_KEY not set (needed for the default --analyzer api; not needed for --analyzer claude-code)\n")
+		fmt.Printf("  [info] ANTHROPIC_API_KEY not set (needed for the default --analyzer api; not needed for claude-code, codex, or ollama)\n")
 	}
 
-	// Check the claude CLI for --analyzer claude-code. Optional: the default
-	// --analyzer is "api", so absence here is informational, not a failure,
-	// mirroring the Soniox API key check above. Passes the overall doctor
-	// count when EITHER analysis path is usable, so a user who only set up
-	// one of the two is not told to "fix" the other.
-	total++
+	// Check the three analysis backends that need no Anthropic API key.
+	// Each is optional on its own (the default --analyzer is "api"), so
+	// absence is informational; doctor only fails when NO analysis path is
+	// usable, so a user who set up one backend is not told to "fix" others.
 	claudeCodePath, claudeCodeErr := exec.LookPath("claude")
+	codexPath, codexErr := exec.LookPath("codex")
+	ollamaURL, ollamaModel := doctorOllamaTarget()
+	ollamaModels, ollamaErr := ollamaProbe(ollamaURL)
+	ollamaReady := ollamaErr == nil && hasOllamaModel(ollamaModels, ollamaModel)
+	anyAnalysis := hasAPIKey || claudeCodeErr == nil || codexErr == nil || ollamaReady
+
+	total++
 	switch {
 	case claudeCodeErr == nil:
 		fmt.Printf("  [pass] claude CLI found (%s) -- --analyzer claude-code available\n", claudeCodePath)
 		passed++
-	case hasAPIKey:
+	case anyAnalysis:
 		fmt.Printf("  [info] claude CLI not found on PATH (optional, for --analyzer claude-code)\n")
 		passed++
 	default:
-		fmt.Printf("  [FAIL] Neither ANTHROPIC_API_KEY nor a claude CLI on PATH -- Claude analysis will be skipped\n")
+		fmt.Printf("  [FAIL] No analysis backend available: set ANTHROPIC_API_KEY, install/log in to the claude or codex CLI, or run Ollama with %s pulled -- analysis will be skipped\n", ollamaModel)
+	}
+
+	total++
+	passed++ // optional backend; never a failure on its own
+	if codexErr == nil {
+		fmt.Printf("  [pass] codex CLI found (%s) -- --analyzer codex available\n", codexPath)
+	} else {
+		fmt.Printf("  [info] codex CLI not found on PATH (optional, for --analyzer codex)\n")
+	}
+
+	total++
+	passed++ // optional backend; never a failure on its own
+	switch {
+	case ollamaReady:
+		fmt.Printf("  [pass] Ollama reachable at %s with %s -- --analyzer ollama available (fully on-device)\n", ollamaURL, ollamaModel)
+	case ollamaErr == nil:
+		fmt.Printf("  [info] Ollama reachable at %s but %s is not pulled -- run 'ollama pull %s' for --analyzer ollama\n", ollamaURL, ollamaModel, ollamaModel)
+	default:
+		fmt.Printf("  [info] Ollama not reachable at %s (optional; install Ollama and run 'ollama serve' for fully on-device analysis)\n", ollamaURL)
 	}
 
 	// Check the whisper-cli binary for local transcription (heimdall
@@ -274,4 +303,65 @@ func runScreenRecordingCheck(helperFound bool) int {
 	fmt.Println("         -> enable 'heimdall-audio', then re-run 'heimdall doctor'")
 	_ = exitCode // exit code reserved for future telemetry; string match is authoritative
 	return 0
+}
+
+// ollamaProbe lists the models installed on the Ollama server at baseURL.
+// Tests replace it so doctor's output can be asserted without a server.
+var ollamaProbe = defaultOllamaProbe
+
+func defaultOllamaProbe(baseURL string) ([]string, error) {
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(strings.TrimRight(baseURL, "/") + "/api/tags")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status %d", resp.StatusCode)
+	}
+	var tags struct {
+		Models []struct {
+			Name string `json:"name"`
+		} `json:"models"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&tags); err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(tags.Models))
+	for _, m := range tags.Models {
+		names = append(names, m.Name)
+	}
+	return names, nil
+}
+
+// doctorOllamaTarget returns the Ollama URL and model doctor should check:
+// the configured values, else the analyzer defaults.
+func doctorOllamaTarget() (baseURL, model string) {
+	// Resolve quietly: doctor reports missing API keys on its own lines, so
+	// the resolution warning loadResolvedConfig logs would be noise here.
+	cfg, _ := config.Load(config.ConfigPath())
+	if cfg != nil {
+		_ = cfg.ResolveEnvVars()
+	}
+	baseURL, model = analyzer.DefaultOllamaBaseURL, analyzer.DefaultOllamaModel
+	if cfg != nil {
+		if v := configValue(cfg.Ollama.BaseURL); v != "" {
+			baseURL = v
+		}
+		if v := configValue(cfg.Ollama.Model); v != "" {
+			model = v
+		}
+	}
+	return baseURL, model
+}
+
+// hasOllamaModel reports whether want is installed. Ollama lists untagged
+// pulls as "<name>:latest", so a bare name matches its :latest tag.
+func hasOllamaModel(installed []string, want string) bool {
+	for _, name := range installed {
+		if name == want || name == want+":latest" {
+			return true
+		}
+	}
+	return false
 }

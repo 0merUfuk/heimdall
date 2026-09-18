@@ -3,6 +3,7 @@
 package analyzer
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -35,6 +36,33 @@ Respond with a single JSON object (no markdown code fences, no extra text) match
 
 If there are no decisions, action items, topics, or follow-ups, use empty arrays [].
 If no meeting type is obvious, use "general".`
+
+// analysisJSONSchema is the JSON Schema form of the OUTPUT FORMAT in
+// systemPrompt, for backends that can enforce a schema at decode time
+// (Ollama's `format`). It must describe exactly the shape
+// parseAnalysisResponse / analysisResult consume --
+// TestAnalysisJSONSchema_MatchesAnalysisResult guards that.
+var analysisJSONSchema = json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "speaker_map": {"type": "object", "additionalProperties": {"type": "string"}},
+    "summary": {"type": "string"},
+    "decisions": {"type": "array", "items": {"type": "object",
+      "properties": {"description": {"type": "string"}, "decided_by": {"type": "string"}},
+      "required": ["description", "decided_by"]}},
+    "action_items": {"type": "array", "items": {"type": "object",
+      "properties": {"task": {"type": "string"}, "owner": {"type": "string"}, "deadline": {"type": "string"}, "priority": {"type": "string"}},
+      "required": ["task", "owner", "deadline", "priority"]}},
+    "topics": {"type": "array", "items": {"type": "object",
+      "properties": {"title": {"type": "string"}, "content": {"type": "string"}},
+      "required": ["title", "content"]}},
+    "followups": {"type": "array", "items": {"type": "object",
+      "properties": {"question": {"type": "string"}, "raised_by": {"type": "string"}},
+      "required": ["question", "raised_by"]}},
+    "meeting_type": {"type": "string"}
+  },
+  "required": ["speaker_map", "summary", "decisions", "action_items", "topics", "followups", "meeting_type"]
+}`)
 
 // maxParticipantLen is the maximum allowed length for a single participant name.
 const maxParticipantLen = 100
@@ -113,10 +141,13 @@ func buildUserPrompt(segments []heimdall.Segment, opts heimdall.AnalyzeOpts) str
 		}
 	}
 
-	// If a non-English language is specified, instruct Claude to produce output
-	// in that language. JSON keys remain in English for parsing.
+	// If a non-English language is specified, instruct the model to produce
+	// output in that language. JSON keys remain in English for parsing. The
+	// language is named, not just coded: measured on qwen3:14b, "in tr" came
+	// back in English while "in Turkish (tr)" came back in Turkish.
 	if opts.Language != "" && opts.Language != "en" && opts.Language != "multi" {
-		fmt.Fprintf(&b, "The transcript is in %s. Produce all summary text, action items, decisions, topics, and follow-ups in %s. Keep JSON keys in English.\n\n", opts.Language, opts.Language)
+		name := languageName(opts.Language)
+		fmt.Fprintf(&b, "The transcript is in %s. Produce all summary text, action items, decisions, topics, and follow-ups in %s. Keep JSON keys in English.\n\n", name, name)
 	}
 
 	// Format transcript with clear delimiters (V-014).
@@ -128,6 +159,26 @@ func buildUserPrompt(segments []heimdall.Segment, opts heimdall.AnalyzeOpts) str
 	b.WriteString("Analyze the meeting transcript above and respond with a JSON object following the schema described in your instructions.")
 
 	return b.String()
+}
+
+// languageNames maps the language codes heimdall accepts (see the
+// supportedLanguages list in cmd/heimdall/config.go) to English names.
+var languageNames = map[string]string{
+	"tr": "Turkish", "es": "Spanish", "fr": "French", "de": "German",
+	"it": "Italian", "pt": "Portuguese", "nl": "Dutch", "ja": "Japanese",
+	"ko": "Korean", "zh": "Chinese", "ru": "Russian", "hi": "Hindi",
+	"pl": "Polish", "sv": "Swedish", "da": "Danish", "no": "Norwegian",
+	"fi": "Finnish", "uk": "Ukrainian", "id": "Indonesian",
+}
+
+// languageName renders a language code as "Turkish (tr)" when known, else
+// returns the (sanitized) code unchanged.
+func languageName(code string) string {
+	code = sanitizePromptInput(code, maxKeywordLen)
+	if name, ok := languageNames[strings.ToLower(code)]; ok {
+		return fmt.Sprintf("%s (%s)", name, code)
+	}
+	return code
 }
 
 // formatTimestamp converts a duration to HH:MM:SS or MM:SS format.

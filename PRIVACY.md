@@ -1,6 +1,6 @@
 # heimdall — Privacy Notice
 
-**Last Updated**: 2026-04-21
+**Last Updated**: 2026-09-19
 
 heimdall is a local-first CLI tool. It runs on your machine, with your API keys, and writes meeting notes to a local Obsidian vault. This document explains what data heimdall processes, where that data goes, and what that means for you as a user, a data controller, or a compliance reviewer.
 
@@ -18,10 +18,13 @@ This is not legal advice. If you are adopting heimdall inside an organization, c
 | Data | Destination | Provider | Retention |
 |------|-------------|----------|-----------|
 | Microphone + system audio (PCM, streamed over WebSocket) | Transcription | Deepgram Inc. (US; EU endpoint `api.eu.deepgram.com` available via config) | Zero retention beyond the live session. heimdall sets `mip_opt_out=true` by default so audio is **not** retained for model training. See [Deepgram's Model Improvement Partnership docs](https://developers.deepgram.com/docs/the-deepgram-model-improvement-partnership-program). |
-| Transcript text (HTTPS request body) | Summarization / speaker-map / action-item generation | Anthropic PBC (US) | 7-day API log retention per [Anthropic's retention policy](https://privacy.claude.com/en/articles/10023548-how-long-do-you-store-my-data) (as of 2025-09-15). API data is excluded from model training by default under Anthropic's [Commercial Terms](https://www.anthropic.com/legal/commercial-terms). |
+| Transcript text (HTTPS request body) -- `--analyzer api` (default) | Summarization / speaker-map / action-item generation | Anthropic PBC (US) | 7-day API log retention per [Anthropic's retention policy](https://privacy.claude.com/en/articles/10023548-how-long-do-you-store-my-data) (as of 2025-09-15). API data is excluded from model training by default under Anthropic's [Commercial Terms](https://www.anthropic.com/legal/commercial-terms). |
+| Transcript text -- `--analyzer claude-code` | Summarization, via your local `claude` CLI | Anthropic PBC (US), under **your own** Claude account | Governed by your Claude plan's terms and settings, not the API terms above. |
+| Transcript text -- `--analyzer codex` | Summarization, via your local `codex` CLI | OpenAI (US), under **your own** ChatGPT/Codex account | Governed by your ChatGPT/Codex plan's terms and data-control settings. heimdall runs Codex with an ephemeral session and removes its temporary working files after each call. |
+| Transcript text -- `--analyzer ollama` | Summarization by a local model via [Ollama](https://ollama.com) | **None -- stays on your machine** (unless you point `ollama.base_url` at another host; heimdall labels such runs "REMOTE") | Nothing leaves the device. Combined with `heimdall transcribe` (local Whisper), no audio, transcript, or analysis leaves the machine at any stage. |
 | Meeting notes + raw transcript (markdown files) | Local Obsidian vault | Your machine | User-controlled. Note: vaults synced via iCloud / Dropbox / Obsidian Sync extend the data trail to those providers. |
 | API keys | `~/.heimdall/config.yaml` or environment variables | Your machine | User-controlled. Mode `0600` recommended. |
-| Crash-recovery snapshots | `~/.heimdall/recovery/*.json` | Your machine | Written every 30 seconds during recording, mode `0600`, deleted on clean shutdown (see V-006 in `docs/architecture/ASSESSMENT.md`). |
+| Crash-recovery snapshots | `~/.heimdall/recovery/*.json` | Your machine | Written every 30 seconds during recording, mode `0600`, deleted after a successful analysis is written (see V-006 in `docs/architecture/ASSESSMENT.md`). **Kept** when analysis fails, so the meeting can be re-analyzed -- delete it yourself if you do not intend to retry. |
 
 ## 3. Data controller
 
@@ -57,7 +60,7 @@ BIPA statutory damages are $1,000 per negligent violation and $5,000 per intenti
 ## 6. EU / GDPR
 
 - **EU residency**: you can point Deepgram at `api.eu.deepgram.com` via the `deepgram.endpoint` config option if your compliance posture requires EU data residency. Anthropic's API is served from the US.
-- **Transfers**: both Deepgram and Anthropic self-certify under the [EU-US Data Privacy Framework](https://www.data-privacy-framework.com/) (in force as of early 2026; General Court dismissed an annulment action on 2025-09-03). If the DPF is invalidated in the future, heimdall's roadmap includes local Whisper + Ollama backends that do not send audio or text off your machine.
+- **Transfers**: both Deepgram and Anthropic self-certify under the [EU-US Data Privacy Framework](https://www.data-privacy-framework.com/) (in force as of early 2026; General Court dismissed an annulment action on 2025-09-03). If the DPF is invalidated, or your compliance posture rules out US processors, heimdall's fully local path (`heimdall transcribe` with Whisper + `--analyzer ollama`) sends no audio or text off your machine.
 - **DPA**: you, not heimdall-the-project, accept Deepgram's and Anthropic's Data Processing Addenda when you sign up for their APIs.
 
 ## 7. Not for

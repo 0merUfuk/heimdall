@@ -57,12 +57,17 @@ Post-meeting analysis (summary, decisions, action items) uses the selected
 --analyzer:
   - api         (default) calls the Anthropic API directly; needs ANTHROPIC_API_KEY
   - claude-code shells out to a local, already-logged-in 'claude' CLI --
-                no separate API key, uses your existing Claude subscription`,
+                no separate API key, uses your existing Claude subscription
+  - ollama      runs a local model via Ollama -- the transcript never leaves
+                this machine; no API key, no account
+  - codex       shells out to a local, already-logged-in 'codex' CLI --
+                no separate API key, uses your existing ChatGPT/Codex plan`,
 	Example: `  heimdall record                                 # auto-title, config defaults
   heimdall record --profile daily                  # use "daily" profile
   heimdall record --title "Sprint Planning"        # custom title
   heimdall record --profile 1on1 --title "Special" # profile + override
-  heimdall record --analyzer claude-code           # analyze via local Claude Code login, no API key`,
+  heimdall record --analyzer claude-code           # analyze via local Claude Code login, no API key
+  heimdall record --analyzer ollama                # analyze on-device via a local Ollama model`,
 	RunE: runRecord,
 }
 
@@ -73,7 +78,7 @@ func init() {
 	recordCmd.Flags().StringVar(&recordKeywords, "keywords", "", "comma-separated list of context keywords for analysis (Deepgram only; ignored for Soniox)")
 	recordCmd.Flags().StringVar(&recordProfile, "profile", "", "meeting profile name (from config)")
 	recordCmd.Flags().StringVar(&recordTranscriber, "transcriber", "deepgram", "transcription provider: deepgram (default) or soniox")
-	recordCmd.Flags().StringVar(&recordAnalyzer, "analyzer", "api", "meeting-analysis backend: api (default, needs ANTHROPIC_API_KEY) or claude-code (uses a local claude login, no API key needed)")
+	recordCmd.Flags().StringVar(&recordAnalyzer, "analyzer", "api", analyzerFlagUsage)
 	recordCmd.Flags().BoolVar(&recordConsentAcknowledged, "consent-acknowledged", false,
 		"acknowledge the recording-consent banner non-interactively (for scripts/CI; does not persist to config)")
 	recordCmd.Flags().BoolVar(&recordSaveAudio, "save-audio", false,
@@ -92,11 +97,8 @@ func runRecord(cmd *cobra.Command, args []string) error {
 	}
 
 	// Validate --analyzer up front for the same fail-fast reason.
-	switch recordAnalyzer {
-	case "", analyzer.ProviderAPI, analyzer.ProviderClaudeCode:
-	default:
-		return fmt.Errorf("--analyzer %q is not valid: use %q (default) or %q",
-			recordAnalyzer, analyzer.ProviderAPI, analyzer.ProviderClaudeCode)
+	if err := validateAnalyzerName(recordAnalyzer); err != nil {
+		return err
 	}
 
 	// Provider-specific API-key preflight. We do NOT require DEEPGRAM_API_KEY
@@ -212,9 +214,11 @@ func runRecord(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Config analyzer as default when the flag was not explicitly set.
-	if !cmd.Flags().Changed("analyzer") && cfg != nil && cfg.Claude.Analyzer != "" {
-		recordAnalyzer = cfg.Claude.Analyzer
+	// Config analyzer as default when the flag was not explicitly set. A
+	// bad config value must fail now, not after a 1-hour meeting.
+	recordAnalyzer = resolveAnalyzerName(cmd, recordAnalyzer, cfg)
+	if err := validateAnalyzerName(recordAnalyzer); err != nil {
+		return fmt.Errorf("claude.analyzer in %s: %w", config.ConfigPath(), err)
 	}
 
 	// Auto-generate title if still empty.
@@ -399,65 +403,59 @@ func runRecord(cmd *cobra.Command, args []string) error {
 	// Print summary.
 	printSummary(sess)
 
-	// Stage 5: Analyze via Claude (API key or a local Claude Code login,
-	// depending on --analyzer).
+	// Stage 5: Analyze via the selected backend (Anthropic API, a local
+	// Claude Code or Codex login, or an on-device Ollama model).
 	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
-	analysisAvailable := recordAnalyzer == analyzer.ProviderClaudeCode || anthropicKey != ""
+	analysisAvailable := !analyzer.RequiresAPIKey(recordAnalyzer) || anthropicKey != ""
 
 	if !analysisAvailable && len(sess.Segments()) > 0 {
 		fmt.Println()
-		fmt.Println("Note: ANTHROPIC_API_KEY not set -- Claude analysis skipped.")
+		fmt.Println("Note: ANTHROPIC_API_KEY not set -- analysis skipped.")
 		fmt.Println("The raw transcript was displayed above but no meeting note was saved.")
 		fmt.Println("To enable analysis: export ANTHROPIC_API_KEY=your_key")
 		fmt.Println("  or reuse an existing Claude Code login: heimdall record --analyzer claude-code")
+		fmt.Println("  or analyze fully on-device:             heimdall record --analyzer ollama")
 		fmt.Println("To analyze this session later: heimdall recover")
 	}
 	if analysisAvailable && len(sess.Segments()) > 0 {
-		if recordAnalyzer == analyzer.ProviderClaudeCode {
-			fmt.Println("Generating meeting summary via Claude Code (local login)...")
-		} else {
-			fmt.Println("Generating meeting summary via Claude...")
-		}
-
 		// Config was pre-loaded and validated before recording started.
 		// Reuse the same cfg variable to avoid loading config twice.
-
-		// Determine the model: config value, then fallback to the package
-		// default -- but only for the API backend. claude-code leaves the
-		// model unset by default so it uses whatever the user's own `claude`
-		// install is configured for; an explicit config override still wins
-		// on either backend.
-		model := ""
-		if cfg != nil && cfg.Claude.Model != "" && !strings.HasPrefix(cfg.Claude.Model, "${") {
-			model = cfg.Claude.Model
-		}
-		if recordAnalyzer != analyzer.ProviderClaudeCode && model == "" {
-			model = analyzer.DefaultModel
-		}
-
-		claude, err := analyzer.NewFromName(recordAnalyzer, anthropicKey)
+		setup, err := newAnalyzerSetup(recordAnalyzer, cfg, anthropicKey)
 		if err != nil {
 			log.Printf("warning: %v", err)
 			return nil
 		}
+		fmt.Printf("Generating meeting summary via %s...\n", setup.Label)
+
 		analyzeOpts := heimdall.AnalyzeOpts{
-			Model:        model,
+			Model:        setup.Model,
 			Language:     recordLanguage,
 			Participants: participants,
 			Keywords:     keywords,
 		}
 
-		analyzeCtx, analyzeCancel := context.WithTimeout(context.Background(), 120*time.Second)
+		analyzeCtx, analyzeCancel := context.WithTimeout(context.Background(), setup.Timeout)
 		defer analyzeCancel()
 
-		note, err := claude.Summarize(analyzeCtx, sess.Segments(), analyzeOpts)
+		note, err := setup.Analyzer.Summarize(analyzeCtx, sess.Segments(), analyzeOpts)
 		if err != nil {
-			log.Printf("warning: Claude analysis failed: %v", err)
+			log.Printf("warning: analysis failed: %v", err)
 		}
 
-		// Detect fallback note from exhausted retries (V-009).
-		if note != nil && note.IsFallback {
-			fmt.Println("Warning: Claude analysis failed after retries. Raw transcript will be saved.")
+		// Detect fallback note from exhausted retries (V-009). Keep the
+		// recovery transcript so the meeting can be re-analyzed -- a
+		// fallback note in the vault is raw text, not re-analyzable input.
+		keepTranscript := note != nil && note.IsFallback
+		if keepTranscript {
+			transcriptPath := ""
+			if recWriter != nil {
+				if err := recWriter.Flush(); err != nil {
+					log.Printf("warning: saving transcript for retry: %v", err)
+				} else {
+					transcriptPath = recWriter.FilePath()
+				}
+			}
+			printFallbackGuidance(setup, note, transcriptPath)
 		}
 
 		if note != nil {
@@ -484,8 +482,9 @@ func runRecord(cmd *cobra.Command, args []string) error {
 						fmt.Println("\nTo retry writing, use: heimdall recover")
 					} else {
 						fmt.Printf("Meeting note saved: %s\n", path)
-						// V-006: clean up recovery file after successful write.
-						if recWriter != nil {
+						// V-006: clean up recovery file after successful
+						// write -- unless the note is only a fallback.
+						if recWriter != nil && !keepTranscript {
 							_ = recWriter.Cleanup()
 						}
 					}
