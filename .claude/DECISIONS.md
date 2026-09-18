@@ -1,6 +1,6 @@
 **Version**: 1.0
 **Created**: 2026-03-28
-**Last Updated**: 2026-04-18
+**Last Updated**: 2026-09-19
 **Authors:** Omer Ufuk
 
 ---
@@ -189,3 +189,75 @@ While building this, a filename bug surfaced: `internal/recovery.sanitizeTitle` 
 - Real per-call observability exists now (`analyzer: model=claude-haiku-4-5 input_tokens=1842 output_tokens=412 latency=1.203s`), usable for debugging slow/expensive analyses or a future `heimdall stats`-style command, without owning a pricing table that can silently go wrong.
 - `ClaudeCodeAnalyzer` (the `--analyzer claude-code` subprocess backend) is not covered by this change -- its own `claude -p --output-format json` envelope already reports `total_cost_usd` directly from the CLI's own live accounting, which is authoritative in a way a hardcoded constant here could never be. Wiring that through is a natural next step now that both are merged to the same base, not duplicated logic to add now.
 - `doCallAPI` is a pure internal refactor (return signature grew a value, not observably different to any caller) -- covered by two new tests asserting the log line's exact content on success and its absence on total failure, not just that `Summarize` still returns the right note.
+
+### ID-011: `OllamaAnalyzer` -- on-device analysis over Ollama's native API, never over its OpenAI/Anthropic-compatible endpoints
+
+**Date**: 2026-09-19
+
+**Context**: Stage 5 was the last stage with no offline path: with `heimdall transcribe` (ID-008) audio and transcript could stay on-device, but analysis always went to Anthropic (API or `claude` CLI). The goal is privacy and offline capability, not cost -- `claude-haiku-4-5` is already cheap. Before choosing an integration point, the candidate endpoints were probed on Ollama 0.20.2 (M4 Pro, 24 GB) with the real `systemPrompt` and real transcripts:
+
+| Probe | Result |
+|---|---|
+| `/v1/messages` (Anthropic-compatible) with `ClaudeAnalyzer`'s exact request shape | Works -- a base-URL override would have been zero new code |
+| Short fixture via `/v1/chat/completions` (plain and `json_schema`) and native `/api/chat` + `format` | Valid JSON every time, correct extraction |
+| **60-minute transcript (12,971 tokens) via `/v1/chat/completions`** | Server log `truncating input prompt limit=4096 prompt=12971 keep=4`. Response was **valid, plausible JSON with the meeting's early action item silently missing** -- and the front-truncation also dropped the system prompt (anti-injection rules, schema) |
+| Same transcript via native `/api/chat` with `options.num_ctx=16384` | All 12,971 tokens read, every planted item extracted, 55s |
+
+**Decision**:
+1. **Native `/api/chat`, not the portable endpoints.** Only the native API sets the context window per request; the OpenAI- and Anthropic-compatible endpoints inherit the server default and truncate silently. The failure mode is not "bad JSON" (detectable) but "good-looking, incomplete notes" (not detectable downstream). Native also gives decode-time schema enforcement (`format`), `think:false` for reasoning models, and `prompt_eval_count` for a truncation guard. Cost: LM Studio is not supported. It was not installed, so any LM Studio support would have been untested, and its OpenAI-compatible endpoint fixes context at model-load time anyway, so "portability" would not have solved the real problem there either (unverified inference).
+2. **Size, never truncate.** `num_ctx` is sized to the prompt (conservative bytes/3 estimate + 4096 output reserve) in fixed buckets (8K/16K/32K/40K/...) so repeat runs reuse a warm model, capped by the model's trained context (`/api/show`) and `ollama.max_context` (default 32768). A transcript that does not fit is **never sent**: the V-009 fallback note is returned with an actionable message. After the call, `prompt_eval_count >= num_ctx` or `done_reason == "length"` is treated as a failure, never rendered.
+3. **Single pass; map-reduce deferred.** A measured 60-minute English meeting needs ~13K real tokens and fits one pass. Map-reduce is the highest quality risk (merge passes drop detail) and is not needed until real meetings overflow; the clean refusal above makes that visible when it happens.
+4. **No automatic cloud fallback.** A user who chose on-device analysis for privacy must never have the meeting uploaded because something failed locally. Local failure produces the existing raw-transcript note; the recovery transcript is **kept** and the CLI prints an explicit, user-initiated `heimdall analyze --file <path> --analyzer api` retry. A non-loopback `ollama.base_url` is labeled "REMOTE" in the CLI output so the privacy claim is always true.
+5. **Default model `qwen3:14b`** (9.3 GB Q4_K_M, 40K context) -- the smallest tier that passes the eval suite; see results below. `qwen2.5:7b` was measured and rejected.
+
+**Consequences**:
+- `heimdall transcribe` + `heimdall analyze --analyzer ollama` is a fully offline path end to end (audio, transcript, and analysis never leave the machine). Live `heimdall record` still needs a cloud transcriber (Deepgram/Soniox) -- out of scope here.
+- Two pre-existing bugs fixed along the way because the fallback story depends on them: (a) `record` and `analyze`/`recover` deleted the recovery transcript after writing a *fallback* note, destroying the only re-analyzable copy of a failed meeting; (b) `claude.analyzer` from config was honored only by `record`, although README documented it for `recover`/`analyze` too, and `config set claude.analyzer` was not a settable key.
+- The shared prompt now names the output language ("Turkish (tr)") instead of passing the bare code: measured on `qwen3:14b`, "in tr" produced English summaries and "in Turkish (tr)" produced Turkish. The language code is also sanitized like `--participants`/`--keywords` now (it was the one prompt input that was not).
+- Analysis timeouts are per backend (`analyzer.DefaultTimeoutFor`): API/claude-code keep 120s; Ollama gets 20 min (cold model load + minutes of inference on long meetings).
+
+**Measured results** (M4 Pro 24 GB, temperature 0, 3 runs each, byte-identical -- full detail in `docs/EVALUATION.md`):
+
+| | `qwen3:14b` (default) | `qwen2.5:7b` |
+|---|---|---|
+| Golden fixtures | 5/7 (both misses Turkish) | 0/7 |
+| Valid JSON, first attempt | 21/21 | 21/21 |
+| 60-min meeting, planted-item recall | EN 3/4 (mid-meeting item missed), TR 4/4 | -- |
+| 60-min meeting latency | EN 2 m 14 s, TR 3 m 40 s | 55 s (probe, EN at lower density) |
+| 120-min meeting | refused, nothing sent (~45K tokens > 40,960) | -- |
+
+Against the local-analyzer brief's bars: JSON validity 100% (bar >= 98%) and the offline end-to-end proof (sandboxed, no network) pass; long-meeting action-item recall is 83% (bar >= 85%, and measured against planted ground truth rather than a cloud baseline, which could not be run -- no credential); the blind summary A/B needs the owner.
+
+### ID-012: `CodexAnalyzer` and a cost-tiered Codex model policy
+
+**Date**: 2026-09-19
+
+**Context**: The owner uses Codex as a second execution runtime and asked for "full Codex compatibility" at the lowest reliable cost, mirroring the Claude/Haiku default. Two separate things: (1) Codex as an analysis backend for heimdall users with a ChatGPT/Codex plan, and (2) Codex as a developer on this repository. The repo's `.codex/` mirror had been produced by a blind "Claude"->"Codex" rename (`.Codex/SERVICE_CONTEXT.md` paths that do not exist, "Anthropic Codex (REST)", "analyzes via Codex") and set no model anywhere, so every Codex agent inherited whatever the developer's global Codex default is -- often a high or maximum reasoning effort, the most expensive way to run routine work.
+
+**Decision**:
+1. **`--analyzer codex`** shells out to `codex exec`, the Codex counterpart of `claude-code` (ID-005), sharing `summarizeWithRetry`. Default model `gpt-5.6-luna` ("fast and affordable" tier) at `model_reasoning_effort="low"` -- a bounded extraction task does not need a frontier model or deliberate reasoning. Every flag was verified against codex-cli 0.154.0: `--ignore-user-config` (the global model/effort/hooks/MCP servers do not apply; auth still does), `--strict-config` (a future Codex that drops `developer_instructions` fails loudly instead of silently analyzing without the anti-injection rules -- the key was verified to exist because `--strict-config` rejects unknown keys), `-c developer_instructions=<systemPrompt>` (keeps the system/transcript split, V-014), `-c project_doc_max_bytes=0`, `-C <empty 0700 temp dir>`, `--sandbox read-only`, `--ephemeral`, `--ignore-rules`. The answer is read from `-o` (`--output-last-message`); the `--json` event stream is used only for failures (`turn.failed`, or `error` with no `turn.completed`) and token usage.
+2. **No `--output-schema` for Codex.** OpenAI structured outputs require `additionalProperties:false` on every object, which cannot express `speaker_map`'s dynamic keys; enforcing it would need a backend-specific response rewrite. Codex follows the prompt-described schema exactly like the claude-code backend does.
+3. **Cost-tiered Codex models for development** (all verified to load: Codex deserializes agent files strictly -- a planted unknown key produced "Ignoring malformed agent role definition", the real files produce zero warnings):
+   - Project `.codex/config.toml` (verified loaded for this repo only): main session `gpt-5.6-terra` at `medium`.
+   - `gpt-5.6-terra`/`medium` for roles whose mistakes ship bugs or bad decisions: developer, reviewer, security-reviewer, tech-lead, strategist, architect.
+   - `gpt-5.6-luna`/`medium` for bounded, procedural roles: manager, tester, product-lead, growth-lead.
+   - `sandbox_mode = "read-only"` for the roles whose Claude counterparts are read-only (reviewer, security-reviewer, tech-lead, strategist).
+   - The frontier tier (`gpt-6-astra`) and high/xhigh/ultra effort are never defaults; escalate per task on the command line.
+4. `AGENTS.md` rewritten against current reality: shared project state lives in `.claude/` (Codex agents read it there), Codex agent definitions in `.codex/agents/`, and the auto-loaded Claude rules (`.claude/rules/*.md`) are listed as required reading because Codex does not auto-load them.
+
+**Consequences**:
+- Live `codex exec` verification of the analysis output was blocked for this session (the account hit its Codex usage limit until 2:33 PM 2026-09-19); the usage-limit event stream itself was captured and is pinned in `codex_test.go`. Open item: run `heimdall eval --analyzer codex` once, and confirm whether the global `~/.codex/AGENTS.md` is injected despite `project_doc_max_bytes=0` (Codex may load the global file separately from project docs).
+- No pricing data was available locally; the tiering relies on the model catalog's own descriptions ("fast and affordable" vs "balanced"). Slugs come from the local `models_cache.json` as of 2026-09-19 and will need updating when Codex retires them.
+
+### ID-013: Cloud environments (Codex cloud, Claude Code on the web) via one setup script
+
+**Date**: 2026-09-19
+
+**Context**: Both cloud agents run Linux containers. `go build` of this repo fails on Linux without cgo (`internal/audio` uses malgo), the module requires Go 1.27.1 (newer than typical images), the official `golang` images set `GOTOOLCHAIN=local`, and Codex cloud's agent phase has no internet by default.
+
+**Decision**: `scripts/cloud-setup.sh` (idempotent, Linux-only) installs the exact go.mod Go version when the image's is older -- preferably as Go's own toolchain module through `proxy.golang.org`, because Claude Code's cloud allowlist (verified in its docs) includes `proxy.golang.org` but not `dl.google.com`, where `go.dev/dl` tarball downloads redirect; the tarball is only the fallback for images with no Go >= 1.21 -- ensures a C compiler for cgo, downloads modules, and builds + vets every package during setup. No build tags or code changes were needed: with cgo and a compiler, every package (malgo included) builds, and the **entire test suite passes on Linux under `-race`** (verified in `ubuntu:24.04` and `golang:1.24` on arm64; setup plus the changed packages' tests also verified on `linux/amd64` under emulation, the likely Codex cloud architecture). Claude Code on the web runs it from a committed `.claude/settings.json` SessionStart hook (`--if-remote`: a no-op unless `CLAUDE_CODE_REMOTE=true`); Codex cloud runs it as the environment's setup script.
+
+**Consequences**:
+- Claude Code on the web's documented contract matches this design: the VM sets `CLAUDE_CODE_REMOTE=true`, repo `.claude/settings.json` SessionStart hooks run in single-repo cloud sessions, setup scripts run as root on Ubuntu 24.04 (the image tested here), and Go + GCC are preinstalled. Verified with `go.dev`/`dl.google.com` made unreachable in the container: the toolchain-module path still installs Go 1.27.1 and the build passes.
+- Two real portability bugs were found only by running the script in containers, not by reading it: Ubuntu's `~/.bashrc` returns early for non-interactive shells (an appended PATH line never runs in agent shells), and an older Go earlier on PATH (`/usr/local/go/bin` in `golang:1.24`) shadowed the new one. The script now symlinks into `/usr/local/bin` and repoints stale Go binaries -- acceptable only because it exits on anything but Linux containers.
+- A cloud container can build, vet, lint, run all unit tests, and run `heimdall eval` against a remote backend. It cannot capture audio (Core Audio Taps / Swift helper are macOS-only), run whisper.cpp, or reach a local Ollama.

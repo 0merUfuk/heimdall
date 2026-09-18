@@ -1,6 +1,6 @@
-**Version**: 5.0
+**Version**: 5.1
 **Created**: 2026-03-28
-**Last Updated**: 2026-09-14
+**Last Updated**: 2026-09-19
 **Authors:** Omer Ufuk
 
 ---
@@ -21,6 +21,16 @@
 - **Tests on `main`**: all packages green (`go test ./... -race -count=1`), CI green
 
 ---
+
+## In Progress: Local/offline analyzer + Codex + cloud (branch `claude/heimdall-offline-analyzer-502957`, 2026-09-19)
+
+Not merged yet. Four analysis backends instead of two, a Codex developer setup, and cloud-container support. Decisions and measured evidence: `.claude/DECISIONS.md` ID-011 (Ollama), ID-012 (Codex), ID-013 (cloud).
+
+- `--analyzer ollama` (`internal/analyzer/ollama.go`) -- on-device analysis via Ollama's native API, context sized per transcript, over-long transcripts refused not truncated. Default `qwen3:14b`. `heimdall transcribe` + `analyze --analyzer ollama` is offline end to end.
+- `--analyzer codex` (`internal/analyzer/codex.go`) -- `codex exec`, isolated, default `gpt-5.6-luna` at low effort. **Not yet verified against a live model** (Codex usage limit hit during the session).
+- Fallback no longer deletes the recovery transcript; `claude.analyzer` from config honored by every analysis command; `config set claude.analyzer` works; the prompt names the output language.
+- `.codex/config.toml` + per-role Codex models; `AGENTS.md` rewritten (the previous one pointed at nonexistent `.Codex/` paths).
+- `scripts/cloud-setup.sh` + `.claude/settings.json` SessionStart hook; full test suite verified passing on Linux (ubuntu:24.04, golang:1.24 images).
 
 ## What Shipped in This Round (PRs #29-#41)
 
@@ -52,7 +62,7 @@ New architectural decisions: `.claude/DECISIONS.md` ID-005 through ID-010 (renum
 | `internal/mixer` | Resample 48->16kHz, interleave stereo (L=system, R=mic) -- downmixed to mono by session.go before Deepgram (ID-001) |
 | `internal/transcriber` | Transcriber interface (streaming) + DeepgramTranscriber + SonioxTranscriber + `NewFromName` factory |
 | `internal/localstt` | Batch (non-streaming) local transcription via whisper-cli subprocess. Deliberately NOT a `Transcriber` implementation -- see DECISIONS.md ID-007. |
-| `internal/analyzer` | Analyzer interface + ClaudeAnalyzer (API, with cost/latency logging) + ClaudeCodeAnalyzer (subprocess) + `NewFromName` factory + shared `summarizeWithRetry` |
+| `internal/analyzer` | Analyzer interface + ClaudeAnalyzer (API, with cost/latency logging) + ClaudeCodeAnalyzer (subprocess) + OllamaAnalyzer (native Ollama API, on-device) + CodexAnalyzer (`codex exec` subprocess) + `NewFromName(name, Settings)` factory + shared `summarizeWithRetry` and `analysisJSONSchema` |
 | `internal/eval` | Golden-fixture quality suite for the Analyze stage |
 | `internal/vault` | Reads meeting notes back out of the Obsidian vault (the inverse of `internal/output`) -- powers `heimdall mcp` |
 | `internal/mcpserver` | MCP server over stdio exposing `internal/vault` as three tools |
@@ -70,14 +80,14 @@ New architectural decisions: `.claude/DECISIONS.md` ID-005 through ID-010 (renum
 
 | Command | Purpose |
 |---------|---------|
-| `heimdall record` | Full pipeline recording (`--profile`, `--transcriber deepgram\|soniox`, `--analyzer api\|claude-code`, `--save-audio`) |
-| `heimdall doctor` | Check prerequisites (macOS version, API keys, audio permissions, vault path, claude CLI, whisper-cli) |
+| `heimdall record` | Full pipeline recording (`--profile`, `--transcriber deepgram\|soniox`, `--analyzer api\|claude-code\|ollama\|codex`, `--save-audio`) |
+| `heimdall doctor` | Check prerequisites (macOS version, API keys, audio permissions, vault path, claude/codex CLIs, Ollama + model, whisper-cli) |
 | `heimdall list` | List past meeting notes |
 | `heimdall config init/get/set/show/edit/path/add-profile/profiles` | Configuration management |
 | `heimdall recover` | Scan for orphaned recovery files and re-analyze |
 | `heimdall analyze --file <path>` | Re-analyze a specific recovery transcript JSON file |
 | `heimdall transcribe --file <wav>` | Local offline transcription via Whisper |
 | `heimdall model download <size>` | Fetch a ggml Whisper model |
-| `heimdall eval` | Meeting-analysis quality suite |
+| `heimdall eval` | Meeting-analysis quality suite (`--analyzer`, `--model`, `--judge`, `--json`) |
 | `heimdall mcp` | MCP server over stdio, exposing the vault to any MCP client |
 | `heimdall version` | Print version info |

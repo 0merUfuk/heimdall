@@ -1,6 +1,6 @@
-**Version**: 4.0
+**Version**: 4.1
 **Created**: 2026-03-28
-**Last Updated**: 2026-09-14
+**Last Updated**: 2026-09-19
 **Authors:** Omer Ufuk
 
 ---
@@ -14,6 +14,15 @@
 ---
 
 ## Open
+
+- **`--analyzer codex` not yet verified against a live model** -- every `codex exec` flag was verified against codex-cli 0.154.0 (`--strict-config` accepts `developer_instructions`/`project_doc_max_bytes`, rejects unknown keys), and the real usage-limit event stream is pinned in `codex_test.go`, but the account hit its Codex usage limit during the session, so no end-to-end analysis ran. Next: `heimdall eval --analyzer codex`. Also confirm whether the global `~/.codex/AGENTS.md` is still injected despite `project_doc_max_bytes=0` (Codex may load it separately from project docs); if it is, the analysis prompt carries the user's personal Codex instructions.
+- **`--analyzer claude-code` cannot use a subscription login on current Claude Code (pre-existing, found 2026-09-19, not fixed)** -- `ClaudeCodeAnalyzer` always passes `--bare`, and Claude Code 2.1.271's own `claude -p --help` states that under `--bare` "Anthropic auth is strictly ANTHROPIC_API_KEY or apiKeyHelper ... (OAuth and keychain are never read)". The backend exists precisely to avoid needing an API key (ID-005), so on current Claude Code it only works for users who also have `ANTHROPIC_API_KEY` -- i.e. never for its intended audience. Not fixed here because the fix is not free: `--bare` is also what keeps hooks, plugins (e.g. a memory plugin that would capture meeting transcripts), and CLAUDE.md out of the analysis call, so removing it needs a replacement isolation strategy (empty temp cwd, `--setting-sources`, `--strict-mcp-config`, ...) verified against a logged-in CLI -- none was available this session (`claude -p` returned "Not logged in" with and without `--bare`).
+- **No cloud baseline for the local model yet** -- §8 of the local-analyzer brief compares local output against `claude-haiku-4-5`. Blocked this session: no `ANTHROPIC_API_KEY`, `claude` CLI not logged in (and see the `--bare` issue above), Codex usage limit reached. Run `heimdall eval --analyzer api` (or `claude-code` once fixed) to get it; the local results are already recorded in `docs/EVALUATION.md` for direct comparison.
+- **`qwen3:14b` fails 2 of 7 eval fixtures, both Turkish** (deterministic across runs at temperature 0): `tr-standup` attributes owners as "Speaker N" instead of the required "Unknown Speaker N" (instruction-following, not hallucination), and `tr-en-code-switch` (`--language multi`) summarizes a Turkish meeting with English technical terms in English. Naming the language in the prompt fixed the explicit `--language tr` case; two added instructions for `multi` ("the main language spoken", then a concrete Turkish example) were each measured and changed nothing, so neither was kept. For Turkish meetings, prefer `--language tr` over `multi` with the local backend, or a cloud backend. See `docs/EVALUATION.md`.
+- **Ollama only; LM Studio unsupported** -- deliberate (ID-011): OpenAI-compatible endpoints cannot set the context window per request.
+- **Transcripts longer than the local context window are refused, not chunked** -- map-reduce deliberately deferred (ID-011). Default `ollama.max_context` 32768 covers ~1 hour of English speech; raise it (qwen3:14b's maximum is 40960) or use a cloud backend for longer meetings.
+- **Codex model slugs will age** -- `gpt-5.6-luna`/`gpt-5.6-terra` come from Codex's local model catalog as of 2026-09-19; update `internal/analyzer/codex.go`, `.codex/config.toml`, `.codex/agents/*.toml`, and `AGENTS.md` together when Codex retires them.
+- **`scripts/cloud-setup.sh` repoints stale Go binaries** in the container (e.g. `/usr/local/go/bin/go` in `golang:1.24`) -- intentional and Linux-only, but surprising if someone runs it on a long-lived Linux workstation.
 
 - **Homebrew tap repo/token not yet created** -- `.goreleaser.yml`'s `homebrew_casks` config and `.github/workflows/release.yml` are live and v0.1.0's release ran successfully, but `github.com/0merUfuk/homebrew-heimdall` doesn't exist yet and no `HOMEBREW_TAP_TOKEN` secret is set. The release workflow correctly no-ops this step rather than failing (see "Resolved" below) -- but the tap itself is still an owner action (`docs/RELEASING.md` has the steps).
 - **`heimdall eval`'s quality baseline is still theoretical** -- the suite correctly detects and fails closed on degraded/fallback output (verified: 0/7 with the right root cause reported) but has never been run against a real model -- no sandbox credential was available this round either. The first real run is the actual baseline, not the design intent documented in `docs/EVALUATION.md`.
