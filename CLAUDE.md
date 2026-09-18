@@ -1,6 +1,6 @@
-**Version**: 1.2
+**Version**: 1.3
 **Created**: 2026-03-28
-**Last Updated**: 2026-04-22
+**Last Updated**: 2026-09-19
 **Authors:** Omer Ufuk
 
 ---
@@ -45,17 +45,18 @@ heimdall/
 │   ├── heimdall/              # Shared types (AudioFrame, Segment, MeetingNote)
 │   ├── audio/                 # AudioSource interface + MicrophoneSource + SystemAudioSource
 │   ├── transcriber/           # Transcriber interface + DeepgramTranscriber (WebSocket)
-│   ├── analyzer/              # Analyzer interface + ClaudeAnalyzer (Anthropic API)
+│   ├── analyzer/              # Analyzer interface + 4 backends: ClaudeAnalyzer (API), ClaudeCodeAnalyzer, OllamaAnalyzer (on-device), CodexAnalyzer
 │   ├── mixer/                 # Resample 48->16kHz, stereo interleave (L=system, R=mic) — downmixed to mono in session.go (ID-001)
 │   ├── output/                # Writer interface + ObsidianWriter (Go templates)
 │   ├── config/                # Config loading, validation, env var resolution
 │   ├── recovery/              # Crash recovery (atomic temp files every 30s)
 │   └── session/               # MeetingSession orchestrator (wires stages 1-4)
 ├── audio-helper/              # Swift audio capture binary (Core Audio Taps)
+├── scripts/cloud-setup.sh     # Linux cloud-container setup (Codex cloud, Claude Code on the web)
 ├── templates/                 # Go embed templates for Obsidian output
 ├── docs/
 │   └── architecture/          # All design docs (7 files, 2900+ lines)
-├── .claude/                   # Agent ecosystem (10 agents, 17 skills, 4 rules)
+├── .claude/                   # Agent ecosystem (10 agents, 18 skills, 4 rules); Codex twin: AGENTS.md + .codex/
 ├── go.mod
 ├── Makefile
 └── CLAUDE.md
@@ -71,6 +72,12 @@ make test           # Run all tests with race detection
 make clean          # Remove binaries
 make doctor         # Check prerequisites (Go, macOS version, Swift)
 ```
+
+---
+
+## Cloud Environments (Claude Code on the web, Codex cloud)
+
+Linux containers: `scripts/cloud-setup.sh` installs the Go version go.mod requires, a C compiler (cgo is needed for malgo), and pre-builds everything. It runs automatically in Claude Code on the web via the SessionStart hook in `.claude/settings.json` (a no-op locally). In a container you can build, vet, lint, and run `go test ./... -race` (the full suite passes on Linux); you cannot capture audio, build the Swift helper, run whisper.cpp, or reach a local Ollama. See `.claude/DECISIONS.md` ID-013.
 
 ---
 
@@ -109,7 +116,7 @@ type Analyzer interface {
 2. MIX        → Resample, convert, interleave stereo             [No LLM]
 3. TRANSCRIBE → Deepgram Nova-3 WebSocket (mono + diarize, ID-001) [No LLM]
 4. ACCUMULATE → In-memory segments + terminal display             [No LLM]
-5. ANALYZE    → Claude API (post-meeting) — the ONLY LLM stage  [LLM]
+5. ANALYZE    → Claude API | claude CLI | Ollama (on-device) | codex CLI — post-meeting, the ONLY LLM stage [LLM]
 6. RENDER     → Go templates → Obsidian vault markdown           [No LLM]
 ```
 
@@ -122,7 +129,7 @@ type Analyzer interface {
 - **V-003**: Screen Recording permission must be checked before recording starts
 - **V-005**: Network disruption requires ring buffer + reconnection logic
 - **V-006**: Crash recovery via temp file writes every 30 seconds
-- **V-009**: Claude API failures must fall back to raw transcript output
+- **V-009**: Analysis failures (any backend) must fall back to raw transcript output — and keep the recovery transcript for a retry (ID-011)
 
 > Full vulnerability list: `docs/architecture/ASSESSMENT.md`
 
@@ -132,7 +139,7 @@ type Analyzer interface {
 
 - **Pipeline clarity**: Each stage has one job. No LLM in the audio path. No audio processing in the output path.
 - **Provider abstraction**: Every external dependency sits behind an interface.
-- **Graceful degradation**: If Claude fails, write raw transcript. If Deepgram fails, save raw audio. Never lose the meeting.
+- **Graceful degradation**: If analysis fails, write raw transcript. If Deepgram fails, save raw audio. Never lose the meeting. Never fall back from on-device analysis to a cloud backend on the user's behalf (ID-011).
 - **Obsidian-native**: Output is vanilla markdown with YAML frontmatter. No plugin required.
 
 ---
