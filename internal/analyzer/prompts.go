@@ -145,7 +145,16 @@ func buildUserPrompt(segments []heimdall.Segment, opts heimdall.AnalyzeOpts) str
 	// output in that language. JSON keys remain in English for parsing. The
 	// language is named, not just coded: measured on qwen3:14b, "in tr" came
 	// back in English while "in Turkish (tr)" came back in Turkish.
-	if opts.Language != "" && opts.Language != "en" && opts.Language != "multi" {
+	//
+	// "multi" (auto-detect / code-switched) gets its own instruction:
+	// measured on claude-haiku-4-5 with a Turkish meeting full of English
+	// technical terms, 0/3 summaries came back in Turkish without it and
+	// 3/3 with it. (qwen3:14b stays English either way -- a model limit.)
+	switch opts.Language {
+	case "", "en":
+	case "multi":
+		b.WriteString("The transcript may mix languages. Produce all summary text, action items, decisions, topics, and follow-ups in the main language spoken in the meeting (keep technical terms as spoken). Keep JSON keys in English.\n\n")
+	default:
 		name := languageName(opts.Language)
 		fmt.Fprintf(&b, "The transcript is in %s. Produce all summary text, action items, decisions, topics, and follow-ups in %s. Keep JSON keys in English.\n\n", name, name)
 	}

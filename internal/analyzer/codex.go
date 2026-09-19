@@ -170,7 +170,7 @@ func (c *CodexAnalyzer) callOnce(ctx context.Context, model, userPrompt string) 
 	}
 
 	start := time.Now()
-	stdout, runErr := c.runner(callCtx, c.binPath, args, userPrompt)
+	stdout, runErr := c.runner(callCtx, c.binPath, args, userPrompt, runOpts{Dir: workDir})
 
 	if errors.Is(runErr, exec.ErrNotFound) {
 		return "", fmt.Errorf("codex CLI not found on PATH -- install Codex (https://developers.openai.com/codex) or choose another --analyzer")

@@ -58,7 +58,7 @@ func configOverrides(args []string) map[string]string {
 // codexStub fakes `codex exec`: it writes answer to the -o file (as the real
 // CLI does with --output-last-message) and prints jsonl to stdout.
 func codexStub(answer, jsonl string, runErr error, calls *atomic.Int32, gotArgs *[]string, gotStdin *string) commandRunner {
-	return func(ctx context.Context, name string, args []string, stdin string) (string, error) {
+	return func(ctx context.Context, name string, args []string, stdin string, _ runOpts) (string, error) {
 		if calls != nil {
 			calls.Add(1)
 		}
@@ -104,7 +104,7 @@ func TestCodexAnalyzer_ArgsAndStdin(t *testing.T) {
 	var args []string
 	var stdin string
 	var workDir string
-	runner := func(ctx context.Context, name string, a []string, in string) (string, error) {
+	runner := func(ctx context.Context, name string, a []string, in string, ro runOpts) (string, error) {
 		args, stdin = a, in
 		workDir = argValue(a, "-C")
 		entries, err := os.ReadDir(workDir)
@@ -114,7 +114,7 @@ func TestCodexAnalyzer_ArgsAndStdin(t *testing.T) {
 		if info, err := os.Stat(filepath.Dir(workDir)); err == nil && info.Mode().Perm() != 0o700 {
 			t.Errorf("temp dir permissions: got %v, want 0700", info.Mode().Perm())
 		}
-		return codexStub(sampleAnalysisJSON(), codexSuccessJSONL, nil, nil, nil, nil)(ctx, name, a, in)
+		return codexStub(sampleAnalysisJSON(), codexSuccessJSONL, nil, nil, nil, nil)(ctx, name, a, in, ro)
 	}
 	a := NewCodexAnalyzer().WithRunner(runner)
 
