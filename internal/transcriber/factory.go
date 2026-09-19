@@ -12,6 +12,11 @@ import (
 const (
 	ProviderDeepgram = "deepgram"
 	ProviderSoniox   = "soniox"
+
+	// ProviderWhisper selects offline capture: nothing is transcribed live
+	// (CaptureOnlyTranscriber); the record command transcribes the saved
+	// audio locally with whisper.cpp after the meeting.
+	ProviderWhisper = "whisper"
 )
 
 // NewFromName constructs a Transcriber by provider name. Deepgram remains
@@ -37,7 +42,9 @@ func NewFromName(name string, dgCfg config.DeepgramConfig, snxCfg config.SonioxC
 			Model:    snxCfg.Model,
 			Language: snxCfg.Language,
 		}), nil
+	case ProviderWhisper:
+		return NewCaptureOnly(), nil
 	default:
-		return nil, fmt.Errorf("unknown transcriber %q: valid options are %q, %q", name, ProviderDeepgram, ProviderSoniox)
+		return nil, fmt.Errorf("unknown transcriber %q: valid options are %q, %q, %q", name, ProviderDeepgram, ProviderSoniox, ProviderWhisper)
 	}
 }

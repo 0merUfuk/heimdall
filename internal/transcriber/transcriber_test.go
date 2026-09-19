@@ -3,6 +3,9 @@ package transcriber
 import (
 	"context"
 	"testing"
+	"time"
+
+	"github.com/0merUfuk/heimdall/internal/config"
 
 	heimdall "github.com/0merUfuk/heimdall/internal/heimdall"
 )
@@ -227,5 +230,36 @@ func TestTranscriber_ConnectWithVariousOpts(t *testing.T) {
 				t.Errorf("Close: unexpected error: %v", err)
 			}
 		})
+	}
+}
+
+func TestCaptureOnlyTranscriber(t *testing.T) {
+	tr, err := NewFromName(ProviderWhisper, config.DeepgramConfig{}, config.SonioxConfig{})
+	if err != nil {
+		t.Fatalf("NewFromName(whisper): %v (must need no API key)", err)
+	}
+	c, ok := tr.(*CaptureOnlyTranscriber)
+	if !ok {
+		t.Fatalf("type: got %T, want *CaptureOnlyTranscriber", tr)
+	}
+	if err := c.Connect(context.Background(), heimdall.TranscribeOpts{}); err != nil {
+		t.Errorf("Connect: %v", err)
+	}
+	if err := c.Send(heimdall.AudioFrame{Data: []byte{1, 2}}); err != nil {
+		t.Errorf("Send: %v", err)
+	}
+	if err := c.Close(); err != nil {
+		t.Errorf("Close: %v", err)
+	}
+	if err := c.Close(); err != nil {
+		t.Errorf("second Close must be a no-op, got %v", err)
+	}
+	select {
+	case _, open := <-c.Receive():
+		if open {
+			t.Error("Receive delivered a segment; capture-only must never transcribe")
+		}
+	case <-time.After(time.Second):
+		t.Error("Receive channel not closed after Close -- the session's accumulator would never exit")
 	}
 }

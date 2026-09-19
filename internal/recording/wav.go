@@ -15,6 +15,7 @@ package recording
 import (
 	"encoding/binary"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -109,6 +110,27 @@ func (w *WAVWriter) WriteFrame(frame heimdall.AudioFrame) error {
 		return fmt.Errorf("writing audio frame to %s: %w", w.path, err)
 	}
 	w.dataBytes += uint32(n)
+	return nil
+}
+
+// Checkpoint patches the header with the data size written so far, so a
+// crash mid-recording leaves a playable WAV of everything captured up to
+// the last checkpoint instead of one whose header claims zero bytes of
+// audio. The record command calls it periodically (V-006's 30s cadence).
+// A no-op after Close.
+func (w *WAVWriter) Checkpoint() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.closed {
+		return nil
+	}
+	if err := w.writeHeader(w.dataBytes); err != nil {
+		return err
+	}
+	// writeHeader leaves the offset just past the header; resume appending.
+	if _, err := w.f.Seek(0, io.SeekEnd); err != nil {
+		return fmt.Errorf("seeking to end of %s: %w", w.path, err)
+	}
 	return nil
 }
 

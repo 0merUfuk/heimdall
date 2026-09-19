@@ -351,3 +351,40 @@ func TestConfigValidate_AcceptsEveryProvider(t *testing.T) {
 		}
 	}
 }
+
+// TestRunRecord_WhisperPreflight: offline capture must fail BEFORE the
+// meeting starts (no devices opened, no consent prompt) when the local
+// transcription it depends on is unusable, and must not require any
+// transcription API key.
+func TestRunRecord_WhisperPreflight(t *testing.T) {
+	origT, origM := recordTranscriber, recordWhisperModel
+	t.Cleanup(func() { recordTranscriber, recordWhisperModel = origT, origM })
+	recordTranscriber = "whisper"
+	recordWhisperModel = "base"
+	t.Setenv("DEEPGRAM_API_KEY", "")
+	t.Setenv("SONIOX_API_KEY", "")
+	t.Setenv("HOME", t.TempDir())
+
+	t.Run("whisper-cli missing", func(t *testing.T) {
+		t.Setenv("PATH", t.TempDir())
+		err := runRecord(recordCmd, nil)
+		if err == nil || !strings.Contains(err.Error(), "whisper-cli") {
+			t.Fatalf("want a whisper-cli error, got %v", err)
+		}
+		if strings.Contains(err.Error(), "DEEPGRAM_API_KEY") {
+			t.Errorf("offline capture must not ask for a Deepgram key: %v", err)
+		}
+	})
+
+	t.Run("model missing", func(t *testing.T) {
+		bin := t.TempDir()
+		if err := os.WriteFile(filepath.Join(bin, "whisper-cli"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", bin)
+		err := runRecord(recordCmd, nil)
+		if err == nil || !strings.Contains(err.Error(), "heimdall model download base") {
+			t.Fatalf("want a model-download error, got %v", err)
+		}
+	})
+}
