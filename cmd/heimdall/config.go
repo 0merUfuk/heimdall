@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -428,6 +429,16 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 }
 
 // getConfigValue returns the string value for a dotted config key path.
+// optionalConfigKeys are settable keys whose YAML field or section is
+// omitempty, so they are absent from a config that never set them.
+// TestOptionalConfigKeys_AreSettable keeps this in sync with setConfigValue.
+var optionalConfigKeys = []string{
+	"soniox.api_key", "soniox.model", "soniox.language",
+	"claude.analyzer",
+	"ollama.base_url", "ollama.model", "ollama.max_context",
+	"codex.model",
+}
+
 func getConfigValue(cfg *config.Config, key string) (string, error) {
 	// Marshal config to a generic map for dotted key access.
 	data, err := yaml.Marshal(cfg)
@@ -450,6 +461,11 @@ func getConfigValue(cfg *config.Config, key string) (string, error) {
 		}
 		val, exists := asMap[part]
 		if !exists {
+			// Optional sections are omitted from the YAML while unset
+			// (omitempty), so a valid key there is "not set", not unknown.
+			if slices.Contains(optionalConfigKeys, key) {
+				return "", nil
+			}
 			return "", fmt.Errorf("key %q not found", key)
 		}
 		current = val

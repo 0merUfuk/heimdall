@@ -388,3 +388,26 @@ func TestRunRecord_WhisperPreflight(t *testing.T) {
 		}
 	})
 }
+
+// TestOptionalConfigKeys_AreSettable: every key `config get` treats as
+// "optional, may be unset" must be a real settable key, and on a fresh
+// config each returns an empty value instead of "not found".
+func TestOptionalConfigKeys_AreSettable(t *testing.T) {
+	probe := map[string]string{"claude.analyzer": "ollama", "ollama.max_context": "16384"}
+	for _, key := range optionalConfigKeys {
+		v, ok := probe[key]
+		if !ok {
+			v = "x"
+		}
+		if err := setConfigValue(config.DefaultConfig(), key, v); err != nil {
+			t.Errorf("optional key %q is not settable: %v", key, err)
+		}
+		got, err := getConfigValue(config.DefaultConfig(), key)
+		if err != nil || got != "" {
+			t.Errorf("getConfigValue(%q) on a fresh config = %q, %v; want \"\", nil", key, got, err)
+		}
+	}
+	if _, err := getConfigValue(config.DefaultConfig(), "ollama.nonsense"); err == nil {
+		t.Error("an unknown key must still be an error")
+	}
+}

@@ -182,8 +182,8 @@ func TestRunConfigGet_MasksDeepgramAPIKey(t *testing.T) {
 // raw placeholder is shown verbatim.
 func TestRunConfigGet_PreservesEnvVarRef(t *testing.T) {
 	const rawSecret = "sk-ant-api03-MMMMMMMMMMMMMMMMMMMMMMMMMMMMDEAD"
-	// ResolveEnvVars iterates fields in order and bails on first missing var.
-	// Set both so the claude.api_key field actually gets resolved.
+	// Set both keys so ResolveEnvVars reports no error; claude.api_key would
+	// resolve even with DEEPGRAM_API_KEY unset (it resolves every field).
 	t.Setenv("DEEPGRAM_API_KEY", "dg_live_irrelevant_to_this_test_xyz")
 	t.Setenv("ANTHROPIC_API_KEY", rawSecret)
 	withTempHome(t, "${DEEPGRAM_API_KEY}", "${ANTHROPIC_API_KEY}")
