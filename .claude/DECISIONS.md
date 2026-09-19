@@ -213,7 +213,7 @@ While building this, a filename bug surfaced: `internal/recovery.sanitizeTitle` 
 **Consequences**:
 - `heimdall transcribe` + `heimdall analyze --analyzer ollama` is a fully offline path end to end (audio, transcript, and analysis never leave the machine). Live `heimdall record` still needs a cloud transcriber (Deepgram/Soniox) -- out of scope here.
 - Two pre-existing bugs fixed along the way because the fallback story depends on them: (a) `record` and `analyze`/`recover` deleted the recovery transcript after writing a *fallback* note, destroying the only re-analyzable copy of a failed meeting; (b) `claude.analyzer` from config was honored only by `record`, although README documented it for `recover`/`analyze` too, and `config set claude.analyzer` was not a settable key.
-- The shared prompt now names the output language ("Turkish (tr)") instead of passing the bare code: measured on `qwen3:14b`, "in tr" produced English summaries and "in Turkish (tr)" produced Turkish. The language code is also sanitized like `--participants`/`--keywords` now (it was the one prompt input that was not).
+- The shared prompt now names the output language ("Turkish (tr)") instead of passing the bare code: measured on `qwen3:14b`, "in tr" produced English summaries and "in Turkish (tr)" produced Turkish. `--language multi` gets an explicit "main language spoken in the meeting" instruction: no effect on `qwen3:14b`, but it took `claude-haiku-4-5` from 0/3 to 3/3 Turkish summaries on a code-switched meeting. The language code is also sanitized like `--participants`/`--keywords` now (it was the one prompt input that was not).
 - Analysis timeouts are per backend (`analyzer.DefaultTimeoutFor`): API/claude-code keep 120s; Ollama gets 20 min (cold model load + minutes of inference on long meetings).
 
 **Measured results** (M4 Pro 24 GB, temperature 0, 3 runs each, byte-identical -- full detail in `docs/EVALUATION.md`):
@@ -226,7 +226,7 @@ While building this, a filename bug surfaced: `internal/recovery.sanitizeTitle` 
 | 60-min meeting latency | EN 2 m 14 s, TR 3 m 40 s | 55 s (probe, EN at lower density) |
 | 120-min meeting | refused, nothing sent (~45K tokens > 40,960) | -- |
 
-Against the local-analyzer brief's bars: JSON validity 100% (bar >= 98%) and the offline end-to-end proof (sandboxed, no network) pass; long-meeting action-item recall is 83% (bar >= 85%, and measured against planted ground truth rather than a cloud baseline, which could not be run -- no credential); the blind summary A/B needs the owner.
+Against the local-analyzer brief's bars: JSON validity 100% (bar >= 98%) and the offline end-to-end proof (sandboxed, no network) pass; long-meeting action-item recall is 83% against both planted ground truth and the Haiku baseline measured later the same day (bar >= 85%; see `docs/EVALUATION.md`); the blind summary A/B is the owner's call.
 
 ### ID-012: `CodexAnalyzer` and a cost-tiered Codex model policy
 
@@ -261,3 +261,28 @@ Against the local-analyzer brief's bars: JSON validity 100% (bar >= 98%) and the
 - Claude Code on the web's documented contract matches this design: the VM sets `CLAUDE_CODE_REMOTE=true`, repo `.claude/settings.json` SessionStart hooks run in single-repo cloud sessions, setup scripts run as root on Ubuntu 24.04 (the image tested here), and Go + GCC are preinstalled. Verified with `go.dev`/`dl.google.com` made unreachable in the container: the toolchain-module path still installs Go 1.27.1 and the build passes.
 - Two real portability bugs were found only by running the script in containers, not by reading it: Ubuntu's `~/.bashrc` returns early for non-interactive shells (an appended PATH line never runs in agent shells), and an older Go earlier on PATH (`/usr/local/go/bin` in `golang:1.24`) shadowed the new one. The script now symlinks into `/usr/local/bin` and repoints stale Go binaries -- acceptable only because it exits on anything but Linux containers.
 - A cloud container can build, vet, lint, run all unit tests, and run `heimdall eval` against a remote backend. It cannot capture audio (Core Audio Taps / Swift helper are macOS-only), run whisper.cpp, or reach a local Ollama.
+
+### ID-014: `record --transcriber whisper` -- fully offline meeting capture
+
+**Date**: 2026-09-19
+
+**Context**: ID-011 made analysis offline and ID-008 made transcription offline, but only for an existing WAV -- and the only way to capture a meeting, `heimdall record`, refused to start without a working Deepgram or Soniox key. So "a meeting that never leaves the machine" was not actually possible. This surfaced concretely when the only Deepgram key available for a live test was rejected (401).
+
+**Decision**: `--transcriber whisper` selects `transcriber.CaptureOnlyTranscriber`, a Stage 3 stand-in that transcribes nothing live (no network, no key). The session captures and mixes as usual; the audio is always saved (a WAV-creation failure is fatal before the meeting starts, because the WAV is the only record), and after the stop the record command runs the existing batch `internal/localstt` over it, writes the recovery transcript, and analyzes it with the selected backend. `whisper-cli` and the model are checked *before* the meeting. This is ID-007's batch design reached from `record`, not a streaming Whisper transcriber. With `--analyzer ollama` the meeting never leaves the machine.
+
+**Consequences**:
+- No live transcript in this mode; the terminal says so.
+- The saved WAV is now checkpointed every 30 seconds (`WAVWriter.Checkpoint`, V-006's cadence) in every `--save-audio` recording: previously the header's size was only written at `Close()`, so a crash mid-meeting left a file claiming zero bytes of audio -- in whisper mode, the only copy of the meeting. A failed start no longer leaves an empty WAV behind.
+- Live capture needs macOS Microphone and "Screen & System Audio Recording" permission for the app that runs heimdall (unchanged requirement, but now the only one for an offline meeting).
+
+### ID-015: `--analyzer claude-code` without `--bare`
+
+**Date**: 2026-09-19
+
+**Context**: `ClaudeCodeAnalyzer` passed `--bare`, and Claude Code 2.1.271's own `--help` says that under `--bare` auth is "strictly ANTHROPIC_API_KEY or apiKeyHelper (OAuth and keychain are never read)" -- so the backend could never use the subscription login it exists for (ID-005). But `--bare` was also its isolation: no hooks, plugins, CLAUDE.md, or auto-memory in a call that carries a meeting transcript.
+
+**Decision**: Drop `--bare`; rebuild the isolation from narrower, verified pieces: `--restricted` (ignores user/project/local settings, so their hooks and enabled plugins do not load), `--strict-mcp-config`, `--no-session-persistence`, `--disable-slash-commands`, an empty private working directory, and `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`, `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` -- each variable name confirmed present in the installed binary (a documentation summary had offered two that do not exist).
+
+**Evidence**: against a live model, with a throwaway Claude config dir containing a user-level `CLAUDE.md` secret word and SessionStart/UserPromptSubmit hooks: plain `claude -p` answered the secret word and fired both hooks; heimdall's invocation answered "NONE" and fired neither. `heimdall eval --analyzer claude-code --model claude-haiku-4-5` then passed 7/7 through the real binary, with no session written to disk.
+
+**Consequences**: the subscription (OAuth) path itself could not be exercised -- the machine's `claude` CLI was not logged in, and runs used API-key auth -- so it rests on Claude Code's documented behavior without `--bare`. The first `claude /login` user confirms it.

@@ -27,8 +27,7 @@ Built and verified locally; see `.claude/SERVICE_CONTEXT.md` and `.claude/DECISI
 |------|-------|-----|
 | Review + merge the branch | Owner | Nothing merged yet |
 | `heimdall eval --analyzer codex` once the Codex usage limit resets | Owner / next session | Codex backend verified flag-by-flag but never end to end |
-| Cloud baseline: `heimdall eval --analyzer api` (or claude-code once fixed) | Owner (needs a credential) | The local-vs-Haiku comparison in the brief could not run this session |
-| Fix `--analyzer claude-code`'s `--bare` auth (KNOWN_ISSUES) | Next session, needs a logged-in `claude` CLI | Pre-existing: the backend can't use a subscription login on current Claude Code |
+| Live meeting test of `record --transcriber whisper --analyzer ollama` | Owner present in a real meeting; needs macOS Microphone + Screen & System Audio Recording permission for the app that runs it | The one thing synthetic audio cannot validate |
 | Set the Codex cloud environment's Setup script to `scripts/cloud-setup.sh` | Owner (ChatGPT web UI) | Cannot be configured from the repo |
 | Map-reduce for meetings longer than the local context window | Only if real meetings overflow | Deliberately deferred (ID-011) |
 

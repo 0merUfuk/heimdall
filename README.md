@@ -10,7 +10,7 @@ Named after the Norse god who could hear grass growing.
 - Real-time transcription with speaker diarization via Deepgram Nova-3 (default), with Soniox as an opt-in alternative (`--transcriber soniox`)
 - Optional fully-offline path: `--save-audio` to capture raw audio, `heimdall transcribe` to transcribe it locally via Whisper -- no cloud, no API key, no per-meeting cost
 - Post-meeting analysis -- summary, decisions, action items, speaker identification -- via your choice of backend: Claude (API key, or a local Claude Code login with `--analyzer claude-code`), Codex (a local Codex login with `--analyzer codex`), or **fully on-device** via [Ollama](https://ollama.com) (`--analyzer ollama` -- the transcript never leaves your Mac)
-- End-to-end offline path: `heimdall transcribe` (local Whisper) + `heimdall analyze --analyzer ollama` -- no audio, transcript, or analysis leaves the machine, no API key, no account
+- Fully offline meetings: `heimdall record --transcriber whisper --analyzer ollama` captures the meeting, transcribes it on your Mac with whisper.cpp after you stop, and analyzes it with a local model -- no audio, transcript, or analysis leaves the machine, no API key, no account
 - Writes Obsidian-native markdown with YAML frontmatter, wikilinks, and collapsible transcript
 - `heimdall mcp` exposes your meeting history to Claude Desktop, Claude Code, Cursor, or any MCP client -- ask "what did we decide about the API migration?" and get an answer sourced from your vault
 - Crash recovery -- periodic temp file saves, recover interrupted sessions
@@ -83,7 +83,8 @@ heimdall record --title "Meeting" --analyzer claude-code
 | `--participants` | Comma-separated participant names (hints for speaker ID) |
 | `--language` | Transcription language code (default: `en`, use `multi` for auto-detect) |
 | `--keywords` | Comma-separated context keywords (Deepgram only; ignored under `--transcriber soniox`) |
-| `--transcriber` | Transcription provider: `deepgram` (default) or `soniox`. `soniox` requires `SONIOX_API_KEY` |
+| `--transcriber` | Transcription provider: `deepgram` (default), `soniox` (requires `SONIOX_API_KEY`), or `whisper` -- offline: no live transcript; the audio is saved and transcribed on this machine by whisper.cpp after you stop (needs `brew install whisper-cpp` and `heimdall model download base`) |
+| `--whisper-model` | Whisper model for `--transcriber whisper`: `tiny`, `base` (default), `small`, `medium`, `large`, or a path to a `.bin` file |
 | `--analyzer` | Meeting-analysis backend: `api` (default, needs `ANTHROPIC_API_KEY`), `claude-code` (local, logged-in `claude` CLI), `codex` (local, logged-in `codex` CLI), or `ollama` (fully on-device). Defaults to `claude.analyzer` from config |
 | `--profile` | Use a named meeting profile from config (loads title, language, participants, keywords); explicit flags override profile values |
 | `--consent-acknowledged` | Acknowledge the recording-consent banner non-interactively (scripts/CI; does not persist to config) |
@@ -103,6 +104,16 @@ heimdall never bundles its own model access -- Stage 5 (analysis) calls out to a
 Set a persistent default with `heimdall config set claude.analyzer <backend>` instead of passing `--analyzer` on every `record`/`recover`/`analyze`/`eval` call. `heimdall doctor` reports which backends are available.
 
 If analysis fails after retries, heimdall writes the raw transcript as the note, **keeps the transcript file**, and prints the exact `heimdall analyze --file ... --analyzer ...` command to retry. It never switches to a cloud backend on its own -- if you chose `ollama` for privacy, a cloud retry only happens if you run it yourself.
+
+#### Fully offline meetings
+
+```bash
+brew install whisper-cpp && heimdall model download base   # local transcription
+brew install ollama && ollama serve && ollama pull qwen3:14b  # local analysis
+heimdall record --transcriber whisper --analyzer ollama --title "Design review"
+```
+
+Nothing is transcribed live and nothing is sent over the network: the meeting audio is saved (checkpointed every 30 seconds, so a crash keeps everything captured up to then), transcribed by whisper.cpp when you stop, analyzed by the local model, and written to your vault. Whisper's speaker separation is by channel -- remote participants (system audio) vs. you (microphone) -- not per individual. Like any recording, it needs macOS Microphone and "Screen & System Audio Recording" permission for the app you run it from.
 
 #### Fully on-device analysis (`--analyzer ollama`)
 
@@ -158,7 +169,7 @@ heimdall analyze --file ~/.heimdall/recovery/2026-03-28T14-30-00-sprint-planning
 
 ### `heimdall transcribe`
 
-Transcribe a saved audio file locally via [Whisper](https://github.com/ggml-org/whisper.cpp) -- fully offline, no API key, no cloud, no per-meeting cost. Works on any WAV, e.g. one saved by `heimdall record --save-audio` (note: `record` itself still streams to Deepgram/Soniox live; the offline path starts from a saved recording).
+Transcribe a saved audio file locally via [Whisper](https://github.com/ggml-org/whisper.cpp) -- fully offline, no API key, no cloud, no per-meeting cost. Works on any WAV, e.g. one saved by `heimdall record --save-audio`. (`record --transcriber whisper` does this automatically after the meeting.)
 
 ```bash
 heimdall transcribe --file ~/.heimdall/recordings/2026-09-13T10-00-00-standup.wav

@@ -119,7 +119,7 @@ type Analyzer interface {
 ```
 1. CAPTURE    → Core Audio Taps (Swift) + malgo mic (Go)        [No LLM]
 2. MIX        → Resample, convert, interleave stereo             [No LLM]
-3. TRANSCRIBE → Deepgram Nova-3 WebSocket (mono + diarize, ID-001) [No LLM]
+3. TRANSCRIBE → Deepgram Nova-3 WebSocket (mono + diarize, ID-001) | Soniox | whisper: capture-only, whisper.cpp after the meeting (ID-014) [No LLM]
 4. ACCUMULATE → In-memory segments + terminal display             [No LLM]
 5. ANALYZE    → Claude API | claude CLI | Ollama (on-device) | codex CLI — post-meeting, the ONLY LLM stage [LLM]
 6. RENDER     → Go templates → Obsidian vault markdown           [No LLM]
