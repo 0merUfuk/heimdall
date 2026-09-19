@@ -20,6 +20,8 @@
 - `analyzer.NewFromName` takes an `analyzer.Settings` struct instead of a bare API key.
 
 ### Fixed
+- The Ollama client no longer follows HTTP redirects: Go re-sends a POST body on 307/308, so a redirecting service on the configured address could have forwarded the transcript to another host while the run was labeled on-device.
+- The WAV header checkpoint now uses a positional write; previously a failed seek after rewriting the header would have made the next frame overwrite recorded audio.
 - `--analyzer claude-code` could never use a Claude subscription login: it passed `--bare`, under which Claude Code reads only `ANTHROPIC_API_KEY`/`apiKeyHelper`, never OAuth. `--bare` is gone; the isolation it provided (no hooks, plugins, CLAUDE.md, auto-memory, MCP servers, or saved session in a call that carries a meeting transcript) is rebuilt from `--restricted`, `--strict-mcp-config`, `--no-session-persistence`, `--disable-slash-commands`, an empty temp working directory, and three `CLAUDE_CODE_DISABLE_*` variables -- verified against a live model with planted hooks and a planted CLAUDE.md (ID-015).
 - A crash mid-recording left the `--save-audio` WAV with a header claiming zero bytes of audio (the size was only written on close); the header is now checkpointed every 30 seconds. A recording that fails to start no longer leaves an empty WAV behind.
 - A failed analysis no longer deletes the only re-analyzable copy of the meeting: `record`, `recover`, and `analyze` used to delete the recovery transcript after writing a *fallback* (raw-transcript) note. The file is now kept and the exact retry command is printed. heimdall never falls back from a local backend to a cloud one on its own.

@@ -68,6 +68,9 @@ The first runs of this suite against a real model. Machine: Apple M4 Pro, 24 GB 
 | `qwen2.5:7b` (rejected) | 0/7 | 21/21 | -- | "Speaker N" naming on every fixture, 0 of 5 decisions on `en-dense-coverage`, English summaries of Turkish meetings (measured before the language-name prompt fix) |
 | **`claude-haiku-4-5`** via `--analyzer api` (cloud baseline) | **6/7** (3 runs; not deterministic -- default temperature) | 21/21 | 1.5-3.5 s | `en-dense-coverage`: writes "Team (decision made last week)" as a decision owner, flagged by the name-traceability check |
 | `claude-haiku-4-5` via `--analyzer claude-code` | 7/7 (1 run, through the real `claude` binary) | 7/7 | -- | -- |
+| `gpt-5.6-luna` (low effort) via `--analyzer codex` | 6/7, 6/7, 5/7 | 21/21 | 5.9-16.4 s | name traceability only: joint owners ("Dana and Lena" -- both real names, arguably a false positive of the check), "Team", "Speaker 0 ve Speaker 1" |
+
+Codex carries a fixed ~16.5K input tokens per call (its own built-in agent prompt, plus the user's global `~/.codex/AGENTS.md` -- see `.claude/KNOWN_ISSUES.md`), against ~0.6-0.8K for the same fixture on the Anthropic API.
 
 Before the `multi` language instruction was added, Haiku scored 6/7, 5/7, 5/7 and failed `tr-en-code-switch` in every run -- the same fixture `qwen3:14b` fails. The instruction fixed it for Haiku (Turkish summaries 0/3 -> 3/3 in a direct probe, and the fixture now passes in all 3 eval runs) but not for `qwen3:14b`.
 
@@ -101,8 +104,9 @@ On the golden fixtures the local default is roughly on par with Haiku (5/7 deter
 
 ### Not yet measured
 
-- **`--analyzer codex`**: blocked by a Codex usage limit during the session.
 - **Real meetings**: all numbers above are from synthetic transcripts.
+
+A possible check refinement, deliberately not made mid-comparison: `checkNoHallucinatedNames` treats a joint owner string ("Dana and Lena") as one name, so it fails even when every person in it is in the transcript.
 
 ## Known limitation
 

@@ -445,3 +445,42 @@ func TestIsLoopbackURL(t *testing.T) {
 		}
 	}
 }
+
+// TestOllamaAnalyzer_RefusesRedirects: a service on the configured
+// (loopback) address that redirects /api/chat must not get the transcript
+// forwarded elsewhere -- Go re-sends a POST body on 307/308 by default.
+func TestOllamaAnalyzer_RefusesRedirects(t *testing.T) {
+	if testing.Short() {
+		t.Skip("exercises the full 1s+2s retry backoff")
+	}
+	var remoteHits atomic.Int32
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		remoteHits.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer remote.Close()
+
+	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/show":
+			_ = json.NewEncoder(w).Encode(map[string]any{"model_info": map[string]any{"qwen3.context_length": 40960}})
+		default:
+			http.Redirect(w, r, remote.URL+r.URL.Path, http.StatusTemporaryRedirect)
+		}
+	}))
+	defer local.Close()
+
+	note, err := NewOllamaAnalyzer(local.URL, 0).Summarize(context.Background(), sampleSegments(), heimdall.AnalyzeOpts{})
+	if err != nil {
+		t.Fatalf("Summarize: %v", err)
+	}
+	if !note.IsFallback {
+		t.Fatal("a redirected analysis must fall back, not succeed")
+	}
+	if got := remoteHits.Load(); got != 0 {
+		t.Fatalf("the redirect target received %d request(s): the transcript left the configured server", got)
+	}
+	if !strings.Contains(note.Summary, "refusing redirect") {
+		t.Errorf("Summary should explain the refusal, got %q", note.Summary)
+	}
+}

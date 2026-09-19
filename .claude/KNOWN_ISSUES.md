@@ -15,7 +15,7 @@
 
 ## Open
 
-- **`--analyzer codex` not yet verified against a live model** -- every `codex exec` flag was verified against codex-cli 0.154.0 (`--strict-config` accepts `developer_instructions`/`project_doc_max_bytes`, rejects unknown keys), and the real usage-limit event stream is pinned in `codex_test.go`, but the account hit its Codex usage limit during the session, so no end-to-end analysis ran. Next: `heimdall eval --analyzer codex`. Also confirm whether the global `~/.codex/AGENTS.md` is still injected despite `project_doc_max_bytes=0` (Codex may load it separately from project docs); if it is, the analysis prompt carries the user's personal Codex instructions.
+- **Codex always loads the user's global `~/.codex/AGENTS.md` into `--analyzer codex` calls** -- verified 2026-09-19 with a canary: `project_doc_max_bytes=0` stops project docs only, and no config key or feature flag disables the global file (`instructions=""` was tested and does not; it strips Codex's own base prompt instead). Measured impact: ~3.5K extra input tokens per call; output stays schema-valid, and the event stream shows no tool calls. The only full fix is a separate `CODEX_HOME`, which would mean relocating the user's Codex credentials (token-refresh risk), so it is not done. Keep personal instructions out of that file, or use another backend, if that matters.
 - **`qwen3:14b` fails 2 of 7 eval fixtures, both Turkish** (deterministic across runs at temperature 0): `tr-standup` attributes owners as "Speaker N" instead of the required "Unknown Speaker N" (instruction-following, not hallucination), and `tr-en-code-switch` (`--language multi`) summarizes a Turkish meeting with English technical terms in English. Naming the language in the prompt fixed the explicit `--language tr` case, and the `multi` instruction fixed code-switching for Haiku but not for `qwen3:14b`. For Turkish meetings, prefer `--language tr` over `multi` with the local backend, or a cloud backend. See `docs/EVALUATION.md`.
 - **Live capture needs macOS privacy permissions** -- Microphone and "Screen & System Audio Recording" for whichever app runs `heimdall record` (Terminal, or the app that launches it). Verified 2026-09-19: without them the helper reports `screen-recording-permission: denied` and the microphone open fails or blocks at a pending permission prompt. Only the user can grant them.
 - **`--analyzer claude-code` subscription (OAuth) path not exercised end to end** -- the `--bare` auth bug is fixed (ID-015) and the backend passes 7/7 through the real binary, but with API-key auth: this machine's `claude` CLI was not logged in. First `claude /login` user confirms it.
@@ -32,6 +32,10 @@
 ---
 
 ## Resolved 2026-09-19 (branch `claude/heimdall-offline-analyzer-502957`)
+
+- **`--analyzer codex` unverified** -- live: 6/7, 6/7, 5/7 on the eval, 21/21 valid JSON (`docs/EVALUATION.md`).
+- **The Ollama client followed HTTP redirects** -- a redirecting service on the configured address could have received and forwarded the transcript (Go re-sends a POST body on 307/308) while the run was labeled on-device; redirects are now refused (found by an independent Codex review).
+- **A failed seek after a WAV checkpoint would have overwritten recorded audio** -- the header is now patched with a positional write that never moves the append offset (same review).
 
 - **`--analyzer claude-code` could never use a subscription login** -- `--bare` forbids OAuth/keychain auth; replaced by verified isolation flags (ID-015).
 - **No cloud baseline for the Analyze stage** -- measured: Haiku 6/7 (api), 7/7 (claude-code); see `docs/EVALUATION.md`.

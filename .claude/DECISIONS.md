@@ -246,7 +246,8 @@ Against the local-analyzer brief's bars: JSON validity 100% (bar >= 98%) and the
 4. `AGENTS.md` rewritten against current reality: shared project state lives in `.claude/` (Codex agents read it there), Codex agent definitions in `.codex/agents/`, and the auto-loaded Claude rules (`.claude/rules/*.md`) are listed as required reading because Codex does not auto-load them.
 
 **Consequences**:
-- Live `codex exec` verification of the analysis output was blocked for this session (the account hit its Codex usage limit until 2:33 PM 2026-09-19); the usage-limit event stream itself was captured and is pinned in `codex_test.go`. Open item: run `heimdall eval --analyzer codex` once, and confirm whether the global `~/.codex/AGENTS.md` is injected despite `project_doc_max_bytes=0` (Codex may load the global file separately from project docs).
+- Verified live after the usage limit reset: 6/7, 6/7, 5/7 on the eval, 21/21 valid JSON, 6-16 s per fixture; the success event shapes (`item.completed` agent_message, `turn.completed` usage) match the parser. Each call carries ~16.5K input tokens of Codex's own prompt -- the "cheapest model" default keeps the per-token price low, but Codex is not the lowest-overhead backend.
+- The global `~/.codex/AGENTS.md` IS injected despite `project_doc_max_bytes=0` (canary-verified), and no config key or feature flag disables it; impact measured and documented in `.claude/KNOWN_ISSUES.md`.
 - No pricing data was available locally; the tiering relies on the model catalog's own descriptions ("fast and affordable" vs "balanced"). Slugs come from the local `models_cache.json` as of 2026-09-19 and will need updating when Codex retires them.
 
 ### ID-013: Cloud environments (Codex cloud, Claude Code on the web) via one setup script

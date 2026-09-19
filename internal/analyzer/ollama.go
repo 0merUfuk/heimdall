@@ -89,7 +89,16 @@ func NewOllamaAnalyzer(baseURL string, maxContext int) *OllamaAnalyzer {
 	return &OllamaAnalyzer{
 		baseURL:    strings.TrimRight(baseURL, "/"),
 		maxContext: maxContext,
-		client:     &http.Client{Timeout: ollamaHTTPTimeout},
+		client: &http.Client{
+			Timeout: ollamaHTTPTimeout,
+			// Never follow redirects. Ollama does not issue them, and Go
+			// re-sends the POST body on 307/308 -- so a redirecting service
+			// on the "local" address could forward the transcript to another
+			// host while heimdall reports the run as on-device.
+			CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+				return fmt.Errorf("refusing redirect to %s: the transcript must go only to the configured Ollama server", req.URL.Redacted())
+			},
+		},
 	}
 }
 
