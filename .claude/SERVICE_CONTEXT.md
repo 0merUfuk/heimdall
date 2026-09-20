@@ -83,7 +83,7 @@ New architectural decisions: `.claude/DECISIONS.md` ID-005 through ID-010 (renum
 
 | Command | Purpose |
 |---------|---------|
-| `heimdall record` | Full pipeline recording (`--profile`, `--transcriber deepgram\|soniox`, `--analyzer api\|claude-code\|ollama\|codex`, `--save-audio`) |
+| `heimdall record` | Full pipeline recording (`--profile`, `--transcriber deepgram\|soniox\|whisper`, `--analyzer api\|claude-code\|ollama\|codex`, `--save-audio`) |
 | `heimdall doctor` | Check prerequisites (macOS version, API keys, audio permissions, vault path, claude/codex CLIs, Ollama + model, whisper-cli) |
 | `heimdall list` | List past meeting notes |
 | `heimdall config init/get/set/show/edit/path/add-profile/profiles` | Configuration management |

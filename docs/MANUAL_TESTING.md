@@ -2,7 +2,7 @@
 
 **Date**: 2026-03-31
 **Purpose**: Step-by-step manual testing to verify each pipeline stage works with real audio.
-**Pre-req**: Both binaries built (`make build`), API keys exported.
+**Pre-req**: Both binaries built (`make build`). Cloud scenarios need API keys exported; Scenario 0 (fully offline) needs none.
 
 ---
 
@@ -34,6 +34,93 @@ heimdall doctor -- checking prerequisites...
 
 5/5 checks passed. Ready to record.
 ```
+
+---
+
+## Scenario 0: Fully Offline Live Meeting (no API keys, nothing leaves the Mac)
+
+**What it proves**: the whole pipeline -- capture -> local Whisper transcription -> local model analysis -> Obsidian note -- with no network call for the meeting content. This is the acceptance test for `--transcriber whisper` (ID-014) and `--analyzer ollama` (ID-011).
+
+### One-time prerequisites
+
+```bash
+brew install whisper-cpp ollama
+heimdall model download small       # ~465 MB; base is faster but weaker on Turkish
+ollama serve &                      # or launch the Ollama app
+ollama pull qwen3:14b               # ~9.3 GB
+heimdall config set claude.analyzer ollama
+heimdall config set obsidian.vault_path ~/path/to/vault
+```
+
+**macOS privacy permissions** (System Settings -> Privacy & Security) for the app you run heimdall from -- Terminal, iTerm, or whichever launches it:
+
+| Permission | Why | Without it |
+|---|---|---|
+| **Microphone** | your own voice | `record` fails or blocks at the permission prompt |
+| **Screen & System Audio Recording** | the other participants (Core Audio tap) | `heimdall-audio --check-permissions` prints `denied`; only your mic is recorded |
+
+Verify before the meeting -- this must print `granted`:
+
+```bash
+./bin/heimdall-audio --check-permissions && ./bin/heimdall doctor
+```
+
+`doctor` should show `[pass] Ollama reachable ... with qwen3:14b` and `[pass] whisper-cli found`. `DEEPGRAM_API_KEY`/`ANTHROPIC_API_KEY` may be unset: this path needs neither.
+
+### 60-second capture preflight (run it before joining)
+
+```bash
+./bin/heimdall record --transcriber whisper --whisper-model small \
+  --analyzer ollama --save-audio --title "preflight"
+# play any speech (a video) for ~15 s, say a sentence into the mic, then Ctrl+C
+```
+
+Then confirm both channels actually carry audio -- L is system, R is mic:
+
+```bash
+python3 - "$(ls -t ~/.heimdall/recordings/*.wav | head -1)" <<'PY'
+import sys, wave, struct
+w = wave.open(sys.argv[1]); d = w.readframes(w.getnframes()); s = struct.unpack('<%dh' % (len(d)//2), d)
+pk = lambda c: max((abs(x) for x in c), default=0)
+print("system(L) peak", pk(s[0::2]), "| mic(R) peak", pk(s[1::2]))
+PY
+```
+
+Both peaks must be well above 0. A silent L means Screen Recording is not granted; a silent R means Microphone is not granted or the wrong input device is selected.
+
+### The meeting
+
+```bash
+./bin/heimdall record --transcriber whisper --whisper-model small \
+  --analyzer ollama --title "Weekly sync"
+# add --language tr for a Turkish meeting (prefer it over "multi": the local
+# model summarizes code-switched TR+EN meetings in English)
+```
+
+There is **no live transcript** in this mode -- the terminal says so, and that is expected. Press Ctrl+C when the meeting ends; transcription and analysis then run on the Mac (roughly 2-4 minutes each for a 1-hour meeting).
+
+### Acceptance checklist
+
+- [ ] Terminal shows `STT: whisper (on this machine, after you stop)` and the offline-capture notice
+- [ ] Ctrl+C is followed by `Transcribing ... locally via Whisper`, then `Analyzing via Ollama ... (on-device ...)`
+- [ ] `Meeting note saved: <vault>/meetings/<date>/<title>.md`
+- [ ] The note's **Action Items** table contains the task, owner, and deadline that were actually spoken
+- [ ] **Key Decisions** contains the decision that was actually made, attributed to whoever made it
+- [ ] The raw transcript at the end of the note matches what was said (Whisper accuracy)
+- [ ] Speakers are split as you (mic) vs. everyone else (system audio) -- per-person names only appear when someone is named out loud
+- [ ] `ls ~/.heimdall/recovery/` is empty (the transcript is cleaned up only after a successful note)
+- [ ] Turkish meeting: the summary and action items are in Turkish
+- [ ] While recording, `nettop`/Little Snitch show no heimdall traffic leaving the machine
+
+### If analysis fails
+
+The meeting is never lost: the note is written with the raw transcript, the transcript file is **kept**, and the terminal prints the exact retry command, e.g.
+
+```bash
+heimdall analyze --file ~/.heimdall/recovery/<file>.json --analyzer ollama
+```
+
+A transcript longer than the local context window (~1.5 h of English) is refused rather than truncated; re-run that command with `--analyzer api` or `--analyzer codex` if you want it analyzed in the cloud.
 
 ---
 

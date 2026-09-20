@@ -40,6 +40,21 @@ fi
 
 go_required="$(awk '$1 == "go" { print $2; exit }' go.mod)"
 
+# Official SHA-256 sums for the go.mod toolchain's Linux tarballs, from
+# https://go.dev/dl/?mode=json -- pinned here so the fallback install is
+# verified against a value committed to this repo rather than one fetched
+# from the same place as the tarball. Update both when go.mod's Go version
+# changes; an unpinned version fails closed instead of installing blind.
+declare -A go_sha256=(
+  [amd64]=63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445
+  [arm64]=3450b45a3f9ee8568792736a5c5e70a1f2e9b36c35a8f74958c03e51d7d92bec
+)
+go_sha256_version="1.27.1"
+if [[ "$go_required" != "$go_sha256_version" ]]; then
+  # Stale pins: keep the verified module-proxy path, refuse the tarball one.
+  unset 'go_sha256[amd64]' 'go_sha256[arm64]'
+fi
+
 # version_ge A B: true when version A >= version B (dotted numeric).
 version_ge() {
   [[ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -n1)" == "$2" ]]
@@ -95,7 +110,10 @@ persist_path() {
   local rc
   for rc in "$HOME/.bashrc" "$HOME/.profile"; do
     if ! grep -qsF "$line" "$rc"; then
-      { echo "$line"; cat "$rc" 2>/dev/null || true; } >"$rc.heimdall-tmp" && mv "$rc.heimdall-tmp" "$rc"
+      # Write back in place (not mv) so the file keeps its own mode/owner.
+      { echo "$line"; cat "$rc" 2>/dev/null || true; } >"$rc.heimdall-tmp" &&
+        cat "$rc.heimdall-tmp" >"$rc" && rm -f "$rc.heimdall-tmp"
+      log "prepended a PATH line to $rc"
     fi
   done
 }
@@ -127,10 +145,33 @@ install_go() {
   fi
   local dest="$HOME/.local/go-$go_required"
   if [[ ! -x "$dest/bin/go" ]]; then
+    local want="${go_sha256[$arch]:-}"
+    if [[ -z "$want" ]]; then
+      log "no pinned SHA-256 for go${go_required}.linux-${arch}; refusing to install an unverified toolchain."
+      log "add it to go_sha256 in this script from https://go.dev/dl/?mode=json"
+      exit 1
+    fi
     local url="https://go.dev/dl/go${go_required}.linux-${arch}.tar.gz"
+    local tgz="$dest.tar.gz"
     log "installing Go $go_required from $url"
     mkdir -p "$dest"
-    curl -fsSL "$url" | tar -xz -C "$dest" --strip-components=1
+    curl -fsSL -o "$tgz" "$url"
+    # Verify before extracting: the toolchain runs on every later build, so
+    # a tampered tarball would be code execution in the container. The
+    # preferred path above (the Go module proxy) is already verified against
+    # Go's checksum database; this fallback needs its own check.
+    local got
+    got="$(shasum -a 256 "$tgz" 2>/dev/null | awk '{print $1}')"
+    [[ -z "$got" ]] && got="$(sha256sum "$tgz" | awk '{print $1}')"
+    if [[ "$got" != "$want" ]]; then
+      rm -f "$tgz"
+      log "SHA-256 mismatch for $url"
+      log "  expected $want"
+      log "  got      $got"
+      exit 1
+    fi
+    tar -xzf "$tgz" -C "$dest" --strip-components=1
+    rm -f "$tgz"
   fi
   persist_path "$dest/bin"
 }

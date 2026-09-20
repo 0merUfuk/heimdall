@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -334,5 +335,38 @@ func TestWAVWriter_CheckpointMidRecording(t *testing.T) {
 
 	if err := w.Checkpoint(); err != nil {
 		t.Errorf("Checkpoint after Close must be a no-op, got %v", err)
+	}
+}
+
+// TestWAVWriter_StopsAtFormatLimit: the WAV header counts payload bytes in a
+// uint32, so past 4 GiB the counter would wrap and the header would describe
+// a fraction of the file. The writer must stop instead, keeping the file
+// valid, and report the limit exactly once.
+func TestWAVWriter_StopsAtFormatLimit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.wav")
+	w, err := NewWAVWriter(path, 16000, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+
+	// Pretend almost the whole budget is already written, without doing 4 GiB
+	// of I/O.
+	w.mu.Lock()
+	w.dataBytes = uint32(maxWAVDataBytes) - 4
+	w.mu.Unlock()
+
+	if err := w.WriteFrame(heimdall.AudioFrame{Data: []byte{1, 2, 3, 4}}); err != nil {
+		t.Fatalf("a frame that exactly fits must still be written: %v", err)
+	}
+	err = w.WriteFrame(heimdall.AudioFrame{Data: []byte{5, 6}})
+	if err == nil || !strings.Contains(err.Error(), "4 GiB") {
+		t.Fatalf("crossing the limit must report it once, got %v", err)
+	}
+	if err := w.WriteFrame(heimdall.AudioFrame{Data: []byte{7, 8}}); err != nil {
+		t.Errorf("later frames must be dropped quietly, got %v", err)
+	}
+	if got := w.dataBytes; got != uint32(maxWAVDataBytes) {
+		t.Errorf("dataBytes: got %d, want the limit %d (no wrap)", got, uint32(maxWAVDataBytes))
 	}
 }

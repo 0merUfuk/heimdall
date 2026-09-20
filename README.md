@@ -279,6 +279,7 @@ heimdall uses a 6-stage pipeline. The LLM appears in exactly one stage (Stage 5)
 Stage 1: CAPTURE     System audio (Swift/Core Audio Taps) + microphone (Go/malgo)
 Stage 2: MIX         Resample 48kHz->16kHz, interleave stereo (L=system, R=mic)
 Stage 3: TRANSCRIBE  Deepgram Nova-3 WebSocket (mono + diarize) -- identifies N speakers by voice fingerprinting
+                     | Soniox | whisper: nothing live, whisper.cpp runs on the saved audio after the meeting
 Stage 4: ACCUMULATE  In-memory segments + live terminal display
 Stage 5: ANALYZE     Claude API | claude CLI | codex CLI | Ollama (on-device) -- post-meeting summary, decisions, action items
 Stage 6: RENDER      Go templates -> Obsidian-native markdown

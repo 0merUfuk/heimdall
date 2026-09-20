@@ -62,7 +62,12 @@ type WAVWriter struct {
 	mu        sync.Mutex
 	dataBytes uint32
 	closed    bool
+	full      bool // 4 GiB WAV limit reached; further frames are dropped
 }
+
+// maxWAVDataBytes is the largest payload a canonical WAV header can
+// describe (its data-size field is a uint32).
+const maxWAVDataBytes = uint64(^uint32(0))
 
 // NewWAVWriter creates the parent directory (0700, matching
 // internal/recovery and internal/config's convention for heimdall-owned
@@ -101,6 +106,19 @@ func (w *WAVWriter) WriteFrame(frame heimdall.AudioFrame) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.closed {
+		return nil
+	}
+
+	// A WAV header counts payload bytes in a uint32, so the format itself
+	// tops out at 4 GiB -- about 18.6 hours of 16 kHz 16-bit stereo. Stop
+	// appending at the limit instead of wrapping the counter, which would
+	// leave a header describing a fraction of the data and make the whole
+	// recording unreadable.
+	if uint64(w.dataBytes)+uint64(len(frame.Data)) > maxWAVDataBytes {
+		if !w.full {
+			w.full = true
+			return fmt.Errorf("%s reached the 4 GiB WAV size limit; the recording stops here", w.path)
+		}
 		return nil
 	}
 

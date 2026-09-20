@@ -7,6 +7,8 @@
 - `--analyzer codex` -- analysis via a local, logged-in `codex` CLI (`codex exec`), the Codex counterpart of `claude-code`. Defaults to the cheapest reliable tier, `gpt-5.6-luna` at low reasoning effort (`codex.model` to override). Runs isolated from the user's Codex config, project docs, and repository (`--ignore-user-config --strict-config`, empty private temp dir, read-only sandbox, ephemeral session), with the system prompt passed as `developer_instructions` (ID-012).
 - `heimdall record --transcriber whisper` -- fully offline meeting capture: nothing is transcribed live and nothing goes over the network; the audio is saved and transcribed on the machine by whisper.cpp after the stop, then analyzed. With `--analyzer ollama` a meeting never leaves the Mac. `whisper-cli` and the model are checked before the meeting starts (`--whisper-model`, default `base`) (ID-014).
 - `heimdall eval --model <name>` to evaluate a specific model on the selected backend.
+- `docs/MANUAL_TESTING.md` Scenario 0: the fully offline live-meeting acceptance test -- permissions, a capture preflight that proves both channels carry audio, and an acceptance checklist.
+- `.gitleaksignore` recording the four reviewed, deliberately fake secrets in test fixtures and rule docs, so `gitleaks dir .` is clean and a real leak stands out.
 - `heimdall doctor` reports the `codex` CLI and Ollama (reachable + default model pulled); the analysis check now passes if any of the four backends is usable.
 - `config set` keys: `claude.analyzer`, `ollama.base_url`, `ollama.model`, `ollama.max_context`, `codex.model`.
 - Codex developer setup: project `.codex/config.toml` (cost-efficient model defaults for this repo only) and per-role `model` / `model_reasoning_effort` / `sandbox_mode` in `.codex/agents/*.toml`; `AGENTS.md` rewritten against current reality (ID-012).
@@ -20,6 +22,8 @@
 - `analyzer.NewFromName` takes an `analyzer.Settings` struct instead of a bare API key.
 
 ### Fixed
+- `scripts/cloud-setup.sh` now verifies the fallback Go tarball against SHA-256 sums pinned in the repo and refuses to install an unverified toolchain (the preferred module-proxy path was already checksum-verified); rc-file edits keep the file's own permissions.
+- The WAV writer stops at the 4 GiB format limit (~18.6 h) instead of wrapping its size counter, which would have left the whole recording unreadable.
 - The Ollama client no longer follows HTTP redirects: Go re-sends a POST body on 307/308, so a redirecting service on the configured address could have forwarded the transcript to another host while the run was labeled on-device.
 - The WAV header checkpoint now uses a positional write; previously a failed seek after rewriting the header would have made the next frame overwrite recorded audio.
 - `--analyzer claude-code` could never use a Claude subscription login: it passed `--bare`, under which Claude Code reads only `ANTHROPIC_API_KEY`/`apiKeyHelper`, never OAuth. `--bare` is gone; the isolation it provided (no hooks, plugins, CLAUDE.md, auto-memory, MCP servers, or saved session in a call that carries a meeting transcript) is rebuilt from `--restricted`, `--strict-mcp-config`, `--no-session-persistence`, `--disable-slash-commands`, an empty temp working directory, and three `CLAUDE_CODE_DISABLE_*` variables -- verified against a live model with planted hooks and a planted CLAUDE.md (ID-015).
