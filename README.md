@@ -307,6 +307,8 @@ Process killed   -> Recovery file written every 30s, recoverable
 
 ## Cost Per Meeting
 
+**Free path**: `--transcriber whisper` + `--analyzer ollama` costs nothing per meeting -- whisper.cpp and the local model run on your Mac, and nothing is billed because nothing leaves it. The table below is the default cloud path.
+
 heimdall sends mono audio with Deepgram diarization (ID-001). The cost table below uses stereo rates as a conservative ceiling; actual billing is roughly 50% lower at the mono rate.
 
 | Duration | Deepgram (stereo + diarization) | Claude Haiku (summary) | Total |
@@ -316,6 +318,8 @@ heimdall sends mono audio with Deepgram diarization (ID-001). The cost table bel
 | 2 hours | $2.32 | $0.04 | ~$2.36 |
 
 Deepgram offers $200 free credit -- enough for approximately 170 one-hour meetings.
+
+`--analyzer claude-code` and `--analyzer codex` bill nothing per meeting either: they run against a Claude or ChatGPT/Codex plan you already pay for (they do consume that plan's limits -- a Codex call carries ~16K tokens of its own agent prompt, see `docs/EVALUATION.md`).
 
 ## Project Structure
 

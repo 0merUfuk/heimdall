@@ -11,6 +11,22 @@ Without both, `.github/workflows/release.yml` will fail at the "homebrew cask" s
 
 ## Release process
 
+Before tagging:
+
+```bash
+make build && make test          # binaries + full race suite
+make lint                        # vet + gofmt + golangci-lint
+make vuln                        # govulncheck
+gitleaks dir .                   # reviewed exceptions live in .gitleaksignore
+./bin/heimdall eval              # quality gate; pick the backend you ship against:
+./bin/heimdall eval --analyzer ollama       #   on-device (no credentials needed)
+./bin/heimdall eval --analyzer claude-code  #   or an existing Claude login
+```
+
+`heimdall eval` needs a working backend, not necessarily `ANTHROPIC_API_KEY`: `--analyzer ollama` runs entirely locally. Compare the result against the recorded baselines in `docs/EVALUATION.md` -- a drop there is a release blocker, a Turkish-fixture failure on the local model is a known limitation (`.claude/KNOWN_ISSUES.md`).
+
+A live meeting through `record` is the one check the suites cannot cover; `docs/MANUAL_TESTING.md` Scenario 0 (fully offline) and Scenarios 1-4 (cloud path) are the manual procedures.
+
 ```bash
 git tag -a v0.1.0 -m "Release v0.1.0"
 git push origin v0.1.0
