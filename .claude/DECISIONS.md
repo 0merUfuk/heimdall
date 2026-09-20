@@ -289,3 +289,25 @@ Against the local-analyzer brief's bars: JSON validity 100% (bar >= 98%) and the
 **Evidence**: against a live model, with a throwaway Claude config dir containing a user-level `CLAUDE.md` secret word and SessionStart/UserPromptSubmit hooks: plain `claude -p` answered the secret word and fired both hooks; heimdall's invocation answered "NONE" and fired neither. `heimdall eval --analyzer claude-code --model claude-haiku-4-5` then passed 7/7 through the real binary, with no session written to disk.
 
 **Consequences**: the subscription (OAuth) path itself could not be exercised -- the machine's `claude` CLI was not logged in, and runs used API-key auth -- so it rests on Claude Code's documented behavior without `--bare`. The first `claude /login` user confirms it.
+
+### ID-016: Swift tap format mismatch, and whisper model size as an analysis-quality gate
+
+**Date**: 2026-09-20 (found by the first real live meeting test)
+
+**Context**: The first live test of `record --transcriber whisper` was preceded by a 15-second capture preflight. It reported `system(L) peak=0` while the microphone captured fine.
+
+**Finding 1 -- system audio was never captured on hardware whose tap is not 48kHz stereo (pre-existing since v0.1.0).** `audio-helper` read the tap's real format (44.1kHz mono on a USB headset output), logged "mono tap detected", and then installed the tap with a hardcoded 48kHz stereo format anyway, trusting Core Audio to convert. AVAudioEngine instead threw `Failed to create tap due to format mismatch`; the helper crashed, the Go watchdog restarted it three times and gave up. The status line still read `Audio: system on`, so a meeting would have recorded **only the local microphone** -- every remote participant silently missing. Fixed by installing the tap with the node's own format and converting to the mixer's contract (48kHz stereo Float32) with an `AVAudioConverter`. Preflight after the fix: `system(L) peak 0 -> 9717`.
+
+**Finding 2 -- transcription quality gates analysis quality.** The same 57-minute Turkish technical meeting, same audio, same Codex analyzer:
+
+| Whisper model | Decisions | Action items | Transcription time |
+|---|---|---|---|
+| `small` (auto language) | 0 | 0 | 51 s |
+| `medium` + `--language tr` | 2 | 4 (with owners) | 178 s |
+
+`small` mangled the domain vocabulary badly enough ("YAML" -> "yamul dosyeti") that there was nothing extractable; the empty note was not an analyzer failure. `record`'s and `transcribe`'s default moved from `base` to `small`, and `medium` is documented for Turkish or jargon-heavy meetings.
+
+**Finding 3 -- channel diarization collapses when the microphone hears the system output.** Both channels were verified genuinely independent (raw samples differ; no correlation at any lag), but their levels were nearly identical because the mic picked up the meeting audio and music. whisper.cpp's `--diarize` splits by relative per-channel energy, so 221 of 224 segments landed on one speaker. Headphones that do not leak are the practical fix; per-individual diarization needs a cloud transcriber (ID-008 already documents the coarseness).
+
+**Consequences**: the live test earned its keep -- Finding 1 is invisible to every unit test, the synthetic-audio suites, and the eval fixtures, because they never exercise a real Core Audio tap.
+

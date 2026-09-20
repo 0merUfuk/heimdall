@@ -86,7 +86,10 @@ func init() {
 	recordCmd.Flags().StringVar(&recordKeywords, "keywords", "", "comma-separated list of context keywords for analysis (Deepgram only; ignored for Soniox)")
 	recordCmd.Flags().StringVar(&recordProfile, "profile", "", "meeting profile name (from config)")
 	recordCmd.Flags().StringVar(&recordTranscriber, "transcriber", "deepgram", "transcription provider: deepgram (default), soniox, or whisper (offline: transcribed locally after the meeting)")
-	recordCmd.Flags().StringVar(&recordWhisperModel, "whisper-model", localstt.ModelBase, "whisper model for --transcriber whisper: tiny, base, small, medium, large, or a path to a .bin file")
+	// small, not base: measured on a real 57-minute Turkish technical
+	// meeting, base/small-class output degraded far enough that the analyzer
+	// extracted zero decisions and zero action items from it (ID-016).
+	recordCmd.Flags().StringVar(&recordWhisperModel, "whisper-model", localstt.ModelSmall, "whisper model for --transcriber whisper: tiny, base, small (default), medium, large, or a path to a .bin file. Use medium for Turkish or jargon-heavy meetings")
 	recordCmd.Flags().StringVar(&recordAnalyzer, "analyzer", "api", analyzerFlagUsage)
 	recordCmd.Flags().BoolVar(&recordConsentAcknowledged, "consent-acknowledged", false,
 		"acknowledge the recording-consent banner non-interactively (for scripts/CI; does not persist to config)")

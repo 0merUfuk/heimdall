@@ -102,6 +102,24 @@ Synthetic transcripts at realistic speech density (150 words/min in English), wi
 
 On the golden fixtures the local default is roughly on par with Haiku (5/7 deterministic vs 6/7). Its real gaps are Turkish instruction-following (the two failing fixtures) and long-context recall in the middle of a meeting; Haiku is also 20-30x faster. Choose the local backend for privacy, not for quality or speed.
 
+### Real meeting (2026-09-20)
+
+The first live run: a 57-minute Turkish technical meeting captured with `record --transcriber whisper`, transcribed locally, analyzed with `--analyzer codex` (`gpt-5.6-luna`). Content stays private; only the measurements are recorded here.
+
+| | `small`, language auto | `medium`, `--language tr` |
+|---|---|---|
+| Transcription time (57 min audio) | 51 s | 178 s |
+| Segments | 224 (204 of them music) | 312 |
+| Decisions extracted | **0** | **2** |
+| Action items extracted | **0** | **4**, with owners (one honestly marked uncertain) |
+| Analysis (Codex) | 21,126 in / 336 out tokens, 12 s | 22,994 in / 676 out tokens, 18 s |
+
+The empty note on the first pass was a transcription failure, not an analyzer failure: `small` mangled the domain vocabulary ("YAML" -> "yamul dosyeti") badly enough that there was nothing to extract. Same audio, same analyzer, bigger Whisper model -> a complete note. This is why the defaults moved to `small` and `medium` is documented for Turkish or jargon-heavy meetings (`.claude/DECISIONS.md` ID-016).
+
+Two more findings from the same run, both invisible to the synthetic suites:
+- The Swift helper never captured system audio on a 44.1kHz mono tap (fixed, ID-016). The 15-second capture preflight caught it *before* the meeting: `system(L) peak=0`, and `9717` after the fix.
+- Channel diarization collapsed (221 of 224 segments on one speaker) because the microphone heard the meeting audio at the same level as the system channel. The channels were verified genuinely independent (no correlation at any lag); the limit is whisper.cpp's energy-based `--diarize`.
+
 ### Not yet measured
 
 - **Real meetings**: all numbers above are from synthetic transcripts.

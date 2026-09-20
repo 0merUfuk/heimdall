@@ -48,7 +48,7 @@ downloaded model (heimdall model download <size>).`,
 
 func init() {
 	transcribeCmd.Flags().StringVar(&transcribeFile, "file", "", "path to a WAV audio file, e.g. from --save-audio (required)")
-	transcribeCmd.Flags().StringVar(&transcribeModel, "model", localstt.ModelBase, "whisper model: tiny, base, small, medium, large, or a path to a .bin file")
+	transcribeCmd.Flags().StringVar(&transcribeModel, "model", localstt.ModelSmall, "whisper model: tiny, base, small (default), medium, large, or a path to a .bin file. Use medium for Turkish or jargon-heavy audio")
 	transcribeCmd.Flags().StringVar(&transcribeLanguage, "language", "en", "spoken language code (e.g. en, tr), or auto/multi for language auto-detect")
 	transcribeCmd.Flags().StringVar(&transcribeTitle, "title", "", "title for the resulting transcript (defaults to the audio filename)")
 	_ = transcribeCmd.MarkFlagRequired("file")

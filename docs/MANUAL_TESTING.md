@@ -45,7 +45,11 @@ heimdall doctor -- checking prerequisites...
 
 ```bash
 brew install whisper-cpp ollama
-heimdall model download small       # ~465 MB; base is faster but weaker on Turkish
+heimdall model download small       # ~465 MB, the default
+heimdall model download medium      # ~1.4 GB; use this for Turkish or jargon-heavy
+                                    # meetings -- measured on a real 57-minute meeting,
+                                    # small yielded 0 decisions / 0 action items where
+                                    # medium yielded 2 / 4 from the same audio
 ollama serve &                      # or launch the Ollama app
 ollama pull qwen3:14b               # ~9.3 GB
 heimdall config set claude.analyzer ollama
@@ -94,10 +98,13 @@ Both peaks must be well above 0. A silent L means Screen Recording is not grante
 ### The meeting
 
 ```bash
-./bin/heimdall record --transcriber whisper --whisper-model small \
+./bin/heimdall record --transcriber whisper --whisper-model medium \
   --analyzer ollama --title "Weekly sync"
-# add --language tr for a Turkish meeting (prefer it over "multi": the local
-# model summarizes code-switched TR+EN meetings in English)
+# --whisper-model medium + an explicit --language are what made the difference on a
+# real Turkish meeting: small yielded 0 decisions / 0 action items, medium yielded
+# 2 / 4 from the same audio (ID-016). For English, small is enough.
+# Wear closed headphones: if the mic hears the meeting audio, both channels carry
+# the same sound and the speaker split collapses to a single speaker.
 ```
 
 There is **no live transcript** in this mode -- the terminal says so, and that is expected. Press Ctrl+C when the meeting ends; transcription and analysis then run on the Mac (roughly 2-4 minutes each for a 1-hour meeting).

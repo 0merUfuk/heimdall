@@ -122,6 +122,49 @@ private func startStdinReader() {
     }
 }
 
+// MARK: - Format Conversion
+
+/// Convert a tap buffer to the Go mixer's format (48kHz stereo Float32).
+///
+/// The process tap's format follows the hardware: a USB headset can present
+/// 44.1kHz mono, while the mixer's contract is fixed at 48kHz stereo. Returns
+/// nil on a conversion error (logged once per process, then dropped silently
+/// so a broken converter cannot flood the meeting's stderr).
+private nonisolated(unsafe) var conversionErrorLogged = false
+
+private func convertBuffer(
+    _ buffer: AVAudioPCMBuffer, using converter: AVAudioConverter, to format: AVAudioFormat
+) -> AVAudioPCMBuffer? {
+    let ratio = format.sampleRate / buffer.format.sampleRate
+    // +1 frame of slack: the converter may emit one extra frame when the
+    // input frame count does not divide evenly by the resampling ratio.
+    let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 1
+    guard let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else {
+        return nil
+    }
+
+    var consumed = false
+    var error: NSError?
+    let status = converter.convert(to: output, error: &error) { _, inputStatus in
+        if consumed {
+            inputStatus.pointee = .noDataNow
+            return nil
+        }
+        consumed = true
+        inputStatus.pointee = .haveData
+        return buffer
+    }
+
+    if status == .error || output.frameLength == 0 {
+        if !conversionErrorLogged {
+            conversionErrorLogged = true
+            logError("audio conversion failed: \(error?.localizedDescription ?? "unknown error")")
+        }
+        return nil
+    }
+    return output
+}
+
 // MARK: - Audio Buffer Writer
 
 /// Write interleaved stereo PCM data from an AVAudioPCMBuffer to stdout.
@@ -247,19 +290,44 @@ private func runAudioCapture() -> Int32 {
         "input format: \(inputFormat.sampleRate)Hz, \(inputFormat.channelCount)ch (expected \(kChannelCount)ch)"
     )
 
-    if inputFormat.channelCount == 1 {
-        logError("mono tap detected -- will duplicate to stereo for Go mixer")
-    }
+    // The tap MUST be installed with the node's own format. Passing a
+    // different one (e.g. a hardcoded 48kHz stereo) makes AVAudioEngine throw
+    // "Failed to create tap due to format mismatch" and kill the helper --
+    // which is exactly what happened with a 44.1kHz mono process tap (an
+    // EarPods-style USB output): the helper crashed, the watchdog restarted
+    // it three times, and the meeting silently recorded no system audio at
+    // all. Convert to the Go mixer's contract (48kHz stereo Float32) in the
+    // callback instead.
+    let tapFormat = inputFormat
 
-    // Always use our desired format (48kHz stereo float32) for the tap.
-    // Core Audio will handle any necessary format conversion from the input format.
-    // This ensures consistent output regardless of the hardware's native format.
-    let tapFormat = desiredFormat
+    var converter: AVAudioConverter?
+    if inputFormat.sampleRate != desiredFormat.sampleRate
+        || inputFormat.channelCount != desiredFormat.channelCount
+    {
+        converter = AVAudioConverter(from: inputFormat, to: desiredFormat)
+        if converter == nil {
+            logError(
+                "failed to create converter \(inputFormat.sampleRate)Hz/\(inputFormat.channelCount)ch -> \(desiredFormat.sampleRate)Hz/\(desiredFormat.channelCount)ch"
+            )
+            AudioHardwareDestroyProcessTap(tapID)
+            return ExitCode.fatalError.rawValue
+        }
+        logError(
+            "converting \(inputFormat.sampleRate)Hz/\(inputFormat.channelCount)ch -> \(Int(desiredFormat.sampleRate))Hz/\(desiredFormat.channelCount)ch"
+        )
+    }
 
     // Install a tap on the input node to capture audio buffers.
     inputNode.installTap(onBus: 0, bufferSize: kBufferSize, format: tapFormat) { buffer, _ in
         if shouldShutdown() { return }
-        writeBufferToStdout(buffer)
+        guard let converter else {
+            writeBufferToStdout(buffer)
+            return
+        }
+        guard let converted = convertBuffer(buffer, using: converter, to: desiredFormat) else {
+            return
+        }
+        writeBufferToStdout(converted)
     }
 
     // --- 3. Start the engine ---

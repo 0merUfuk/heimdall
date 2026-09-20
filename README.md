@@ -84,7 +84,7 @@ heimdall record --title "Meeting" --analyzer claude-code
 | `--language` | Transcription language code (default: `en`, use `multi` for auto-detect) |
 | `--keywords` | Comma-separated context keywords (Deepgram only; ignored under `--transcriber soniox`) |
 | `--transcriber` | Transcription provider: `deepgram` (default), `soniox` (requires `SONIOX_API_KEY`), or `whisper` -- offline: no live transcript; the audio is saved and transcribed on this machine by whisper.cpp after you stop (needs `brew install whisper-cpp` and `heimdall model download base`) |
-| `--whisper-model` | Whisper model for `--transcriber whisper`: `tiny`, `base` (default), `small`, `medium`, `large`, or a path to a `.bin` file |
+| `--whisper-model` | Whisper model for `--transcriber whisper`: `tiny`, `base`, `small` (default), `medium`, `large`, or a path to a `.bin` file. Use `medium` for Turkish or jargon-heavy meetings -- on a real 57-minute Turkish meeting `small` produced a transcript with nothing extractable while `medium` yielded 2 decisions and 4 action items |
 | `--analyzer` | Meeting-analysis backend: `api` (default, needs `ANTHROPIC_API_KEY`), `claude-code` (local, logged-in `claude` CLI), `codex` (local, logged-in `codex` CLI), or `ollama` (fully on-device). Defaults to `claude.analyzer` from config |
 | `--profile` | Use a named meeting profile from config (loads title, language, participants, keywords); explicit flags override profile values |
 | `--consent-acknowledged` | Acknowledge the recording-consent banner non-interactively (scripts/CI; does not persist to config) |

@@ -22,6 +22,8 @@
 - `analyzer.NewFromName` takes an `analyzer.Settings` struct instead of a bare API key.
 
 ### Fixed
+- **System audio was never captured on hardware whose Core Audio tap is not 48kHz stereo** (pre-existing since v0.1.0): the Swift helper installed the tap with a hardcoded format, AVAudioEngine threw a format mismatch, and the helper crash-looped while the terminal still reported `Audio: system on` -- a meeting would have recorded only the local microphone. The tap now uses the node's own format and converts to 48kHz stereo with an `AVAudioConverter`. Found by the first real live meeting test (ID-016).
+- `record --whisper-model` and `transcribe --model` now default to `small` instead of `base`: on a real Turkish technical meeting the weaker model produced a transcript the analyzer could extract nothing from. `medium` is documented for Turkish or jargon-heavy meetings.
 - `scripts/cloud-setup.sh` now verifies the fallback Go tarball against SHA-256 sums pinned in the repo and refuses to install an unverified toolchain (the preferred module-proxy path was already checksum-verified); rc-file edits keep the file's own permissions.
 - The WAV writer stops at the 4 GiB format limit (~18.6 h) instead of wrapping its size counter, which would have left the whole recording unreadable.
 - The Ollama client no longer follows HTTP redirects: Go re-sends a POST body on 307/308, so a redirecting service on the configured address could have forwarded the transcript to another host while the run was labeled on-device.
