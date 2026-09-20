@@ -8,11 +8,12 @@ import (
 	"github.com/0merUfuk/heimdall/internal/heimdall"
 )
 
-// perFixtureTimeout bounds a single fixture's Summarize call. Fixtures are
-// short (a handful of segments), so this is generous headroom for a live
-// API/subprocess call plus the existing analyzer retry/backoff, not a tight
-// budget.
-const perFixtureTimeout = 60 * time.Second
+// DefaultPerFixtureTimeout bounds a single fixture's Summarize call when
+// RunOptions.PerFixtureTimeout is unset. Fixtures are short (a handful of
+// segments), so this is generous headroom for a live API/subprocess call
+// plus the existing analyzer retry/backoff, not a tight budget. Local models
+// need longer (cold model load); callers pass PerFixtureTimeout for those.
+const DefaultPerFixtureTimeout = 60 * time.Second
 
 // RunOptions configures a Run.
 type RunOptions struct {
@@ -21,6 +22,14 @@ type RunOptions struct {
 	// faithfulness/coverage via LLM-as-judge. Nil skips judging entirely
 	// (the default -- judging costs real API tokens and is opt-in only).
 	Judge JudgeFunc
+
+	// Model is passed as heimdall.AnalyzeOpts.Model for every fixture.
+	// Empty selects the analyzer's own default model.
+	Model string
+
+	// PerFixtureTimeout bounds each fixture's Summarize and Judge call.
+	// Zero selects DefaultPerFixtureTimeout.
+	PerFixtureTimeout time.Duration
 }
 
 // Run executes every fixture in fixtures against a, running the
@@ -30,12 +39,17 @@ type RunOptions struct {
 // contributes to the Report so a single bad fixture doesn't hide the rest.
 func Run(ctx context.Context, a analyzer.Analyzer, fixtures []Fixture, opts RunOptions) Report {
 	report := Report{Results: make([]FixtureResult, 0, len(fixtures))}
+	perFixtureTimeout := opts.PerFixtureTimeout
+	if perFixtureTimeout <= 0 {
+		perFixtureTimeout = DefaultPerFixtureTimeout
+	}
 
 	for _, f := range fixtures {
 		result := FixtureResult{Fixture: f}
 
 		callCtx, cancel := context.WithTimeout(ctx, perFixtureTimeout)
 		note, err := a.Summarize(callCtx, f.Segments, heimdall.AnalyzeOpts{
+			Model:        opts.Model,
 			Language:     f.Language,
 			Participants: f.Participants,
 		})

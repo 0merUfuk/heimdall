@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -283,5 +284,89 @@ func assertValidHeader(t *testing.T, data []byte, wantSampleRate, wantChannels i
 	riffSize := binary.LittleEndian.Uint32(data[4:8])
 	if riffSize != 36+wantDataBytes {
 		t.Errorf("RIFF chunk size: got %d, want %d", riffSize, 36+wantDataBytes)
+	}
+}
+
+// TestWAVWriter_CheckpointMidRecording: a checkpoint must (a) make the file
+// valid for everything written so far -- what survives a crash -- and (b)
+// not disturb later writes, which must append after the existing payload
+// rather than overwrite it from the header position.
+func TestWAVWriter_CheckpointMidRecording(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.wav")
+	w, err := NewWAVWriter(path, 16000, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first := heimdall.AudioFrame{Data: []byte{1, 2, 3, 4, 5, 6, 7, 8}}
+	if err := w.WriteFrame(first); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Checkpoint(); err != nil {
+		t.Fatalf("Checkpoint: %v", err)
+	}
+
+	// Simulated crash: read the file as it is on disk right now.
+	snapshot, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot) != wavHeaderSize+len(first.Data) {
+		t.Fatalf("snapshot size: got %d, want %d", len(snapshot), wavHeaderSize+len(first.Data))
+	}
+	assertValidHeader(t, snapshot, 16000, 2, uint32(len(first.Data)))
+
+	second := heimdall.AudioFrame{Data: []byte{9, 10, 11, 12}}
+	if err := w.WriteFrame(second); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	final, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := append(append([]byte{}, first.Data...), second.Data...)
+	assertValidHeader(t, final, 16000, 2, uint32(len(want)))
+	if string(final[wavHeaderSize:]) != string(want) {
+		t.Errorf("payload after checkpoint: got %v, want %v", final[wavHeaderSize:], want)
+	}
+
+	if err := w.Checkpoint(); err != nil {
+		t.Errorf("Checkpoint after Close must be a no-op, got %v", err)
+	}
+}
+
+// TestWAVWriter_StopsAtFormatLimit: the WAV header counts payload bytes in a
+// uint32, so past 4 GiB the counter would wrap and the header would describe
+// a fraction of the file. The writer must stop instead, keeping the file
+// valid, and report the limit exactly once.
+func TestWAVWriter_StopsAtFormatLimit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.wav")
+	w, err := NewWAVWriter(path, 16000, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+
+	// Pretend almost the whole budget is already written, without doing 4 GiB
+	// of I/O.
+	w.mu.Lock()
+	w.dataBytes = uint32(maxWAVDataBytes) - 4
+	w.mu.Unlock()
+
+	if err := w.WriteFrame(heimdall.AudioFrame{Data: []byte{1, 2, 3, 4}}); err != nil {
+		t.Fatalf("a frame that exactly fits must still be written: %v", err)
+	}
+	err = w.WriteFrame(heimdall.AudioFrame{Data: []byte{5, 6}})
+	if err == nil || !strings.Contains(err.Error(), "4 GiB") {
+		t.Fatalf("crossing the limit must report it once, got %v", err)
+	}
+	if err := w.WriteFrame(heimdall.AudioFrame{Data: []byte{7, 8}}); err != nil {
+		t.Errorf("later frames must be dropped quietly, got %v", err)
+	}
+	if got := w.dataBytes; got != uint32(maxWAVDataBytes) {
+		t.Errorf("dataBytes: got %d, want the limit %d (no wrap)", got, uint32(maxWAVDataBytes))
 	}
 }

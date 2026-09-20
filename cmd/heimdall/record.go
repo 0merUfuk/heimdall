@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -20,6 +21,7 @@ import (
 	"github.com/0merUfuk/heimdall/internal/config"
 	"github.com/0merUfuk/heimdall/internal/consent"
 	"github.com/0merUfuk/heimdall/internal/heimdall"
+	"github.com/0merUfuk/heimdall/internal/localstt"
 	"github.com/0merUfuk/heimdall/internal/output"
 	"github.com/0merUfuk/heimdall/internal/recording"
 	"github.com/0merUfuk/heimdall/internal/recovery"
@@ -37,6 +39,7 @@ var (
 	recordAnalyzer            string
 	recordConsentAcknowledged bool
 	recordSaveAudio           bool
+	recordWhisperModel        string
 )
 
 var recordCmd = &cobra.Command{
@@ -52,17 +55,27 @@ Press Ctrl+C to stop recording.
 Requires the selected transcriber's API key:
   - DEEPGRAM_API_KEY (default)
   - SONIOX_API_KEY   (with --transcriber soniox)
+  - none             (with --transcriber whisper: nothing is transcribed
+                     live; the audio is saved and transcribed on this
+                     machine by whisper.cpp after you stop -- combine with
+                     --analyzer ollama for a meeting that never leaves it)
 
 Post-meeting analysis (summary, decisions, action items) uses the selected
 --analyzer:
   - api         (default) calls the Anthropic API directly; needs ANTHROPIC_API_KEY
   - claude-code shells out to a local, already-logged-in 'claude' CLI --
-                no separate API key, uses your existing Claude subscription`,
+                no separate API key, uses your existing Claude subscription
+  - ollama      runs a local model via Ollama -- the transcript never leaves
+                this machine; no API key, no account
+  - codex       shells out to a local, already-logged-in 'codex' CLI --
+                no separate API key, uses your existing ChatGPT/Codex plan`,
 	Example: `  heimdall record                                 # auto-title, config defaults
   heimdall record --profile daily                  # use "daily" profile
   heimdall record --title "Sprint Planning"        # custom title
   heimdall record --profile 1on1 --title "Special" # profile + override
-  heimdall record --analyzer claude-code           # analyze via local Claude Code login, no API key`,
+  heimdall record --analyzer claude-code           # analyze via local Claude Code login, no API key
+  heimdall record --analyzer ollama                # analyze on-device via a local Ollama model
+  heimdall record --transcriber whisper --analyzer ollama   # fully offline meeting`,
 	RunE: runRecord,
 }
 
@@ -72,8 +85,12 @@ func init() {
 	recordCmd.Flags().StringVar(&recordParticipants, "participants", "", "comma-separated list of participant names (hints for speaker identification)")
 	recordCmd.Flags().StringVar(&recordKeywords, "keywords", "", "comma-separated list of context keywords for analysis (Deepgram only; ignored for Soniox)")
 	recordCmd.Flags().StringVar(&recordProfile, "profile", "", "meeting profile name (from config)")
-	recordCmd.Flags().StringVar(&recordTranscriber, "transcriber", "deepgram", "transcription provider: deepgram (default) or soniox")
-	recordCmd.Flags().StringVar(&recordAnalyzer, "analyzer", "api", "meeting-analysis backend: api (default, needs ANTHROPIC_API_KEY) or claude-code (uses a local claude login, no API key needed)")
+	recordCmd.Flags().StringVar(&recordTranscriber, "transcriber", "deepgram", "transcription provider: deepgram (default), soniox, or whisper (offline: transcribed locally after the meeting)")
+	// small, not base: measured on a real 57-minute Turkish technical
+	// meeting, base/small-class output degraded far enough that the analyzer
+	// extracted zero decisions and zero action items from it (ID-016).
+	recordCmd.Flags().StringVar(&recordWhisperModel, "whisper-model", localstt.ModelSmall, "whisper model for --transcriber whisper: tiny, base, small (default), medium, large, or a path to a .bin file. Use medium for Turkish or jargon-heavy meetings")
+	recordCmd.Flags().StringVar(&recordAnalyzer, "analyzer", "api", analyzerFlagUsage)
 	recordCmd.Flags().BoolVar(&recordConsentAcknowledged, "consent-acknowledged", false,
 		"acknowledge the recording-consent banner non-interactively (for scripts/CI; does not persist to config)")
 	recordCmd.Flags().BoolVar(&recordSaveAudio, "save-audio", false,
@@ -85,31 +102,42 @@ func runRecord(cmd *cobra.Command, args []string) error {
 	// Validate --transcriber up front so an unknown value fails fast with a
 	// clear message before we open audio devices or prompt for consent.
 	switch recordTranscriber {
-	case "", transcriber.ProviderDeepgram, transcriber.ProviderSoniox:
+	case "", transcriber.ProviderDeepgram, transcriber.ProviderSoniox, transcriber.ProviderWhisper:
 	default:
-		return fmt.Errorf("--transcriber %q is not valid: use %q (default) or %q",
-			recordTranscriber, transcriber.ProviderDeepgram, transcriber.ProviderSoniox)
+		return fmt.Errorf("--transcriber %q is not valid: use %q (default), %q, or %q",
+			recordTranscriber, transcriber.ProviderDeepgram, transcriber.ProviderSoniox, transcriber.ProviderWhisper)
 	}
+	offlineCapture := recordTranscriber == transcriber.ProviderWhisper
 
 	// Validate --analyzer up front for the same fail-fast reason.
-	switch recordAnalyzer {
-	case "", analyzer.ProviderAPI, analyzer.ProviderClaudeCode:
-	default:
-		return fmt.Errorf("--analyzer %q is not valid: use %q (default) or %q",
-			recordAnalyzer, analyzer.ProviderAPI, analyzer.ProviderClaudeCode)
+	if err := validateAnalyzerName(recordAnalyzer); err != nil {
+		return err
 	}
 
 	// Provider-specific API-key preflight. We do NOT require DEEPGRAM_API_KEY
 	// when --transcriber=soniox is in use, or vice-versa.
-	var apiKey, sonioxAPIKey string
-	if recordTranscriber == transcriber.ProviderSoniox {
+	var apiKey, sonioxAPIKey, whisperModelPath string
+	switch {
+	case offlineCapture:
+		// Offline capture needs no key, but the local transcription it
+		// depends on must be usable BEFORE the meeting starts -- not
+		// discovered missing after an hour of recording.
+		if _, err := exec.LookPath("whisper-cli"); err != nil {
+			return fmt.Errorf("--transcriber whisper needs whisper-cli on PATH\n\n" +
+				"Install it with:\n  brew install whisper-cpp")
+		}
+		whisperModelPath = localstt.ResolveModelPath(recordWhisperModel)
+		if _, err := os.Stat(whisperModelPath); err != nil {
+			return fmt.Errorf("whisper model not found at %s\n\nDownload it with:\n  heimdall model download %s", whisperModelPath, recordWhisperModel)
+		}
+	case recordTranscriber == transcriber.ProviderSoniox:
 		sonioxAPIKey = os.Getenv("SONIOX_API_KEY")
 		if sonioxAPIKey == "" {
 			return fmt.Errorf("SONIOX_API_KEY environment variable is not set\n\n" +
 				"Set it with:\n  export SONIOX_API_KEY=your_key_here\n\n" +
 				"Get an API key at: https://soniox.com/")
 		}
-	} else {
+	default:
 		apiKey = os.Getenv("DEEPGRAM_API_KEY")
 		if apiKey == "" {
 			return fmt.Errorf("DEEPGRAM_API_KEY environment variable is not set\n\n" +
@@ -212,9 +240,11 @@ func runRecord(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Config analyzer as default when the flag was not explicitly set.
-	if !cmd.Flags().Changed("analyzer") && cfg != nil && cfg.Claude.Analyzer != "" {
-		recordAnalyzer = cfg.Claude.Analyzer
+	// Config analyzer as default when the flag was not explicitly set. A
+	// bad config value must fail now, not after a 1-hour meeting.
+	recordAnalyzer = resolveAnalyzerName(cmd, recordAnalyzer, cfg)
+	if err := validateAnalyzerName(recordAnalyzer); err != nil {
+		return fmt.Errorf("claude.analyzer in %s: %w", config.ConfigPath(), err)
 	}
 
 	// Auto-generate title if still empty.
@@ -302,8 +332,10 @@ func runRecord(cmd *cobra.Command, args []string) error {
 	// Optional raw-audio persistence (audio.save_recording). A write error
 	// here is logged, never fatal -- losing the backup copy must not
 	// interrupt a live meeting (audio-safety.md).
+	// Offline capture always saves the audio: the WAV is the only record of
+	// the meeting until whisper.cpp transcribes it after the stop.
 	var wavWriter *recording.WAVWriter
-	saveAudio := recordSaveAudio || (cfg != nil && cfg.Audio.SaveRecording)
+	saveAudio := offlineCapture || recordSaveAudio || (cfg != nil && cfg.Audio.SaveRecording)
 	if saveAudio {
 		recordingDir := recording.Dir()
 		if cfg != nil && cfg.Audio.RecordingPath != "" {
@@ -315,6 +347,9 @@ func runRecord(cmd *cobra.Command, args []string) error {
 		// downmixes to mono for the transcriber.
 		wavPath := filepath.Join(recordingDir, recording.FileName(recordTitle, time.Now()))
 		w, err := recording.NewWAVWriter(wavPath, 16000, 2)
+		if err != nil && offlineCapture {
+			return fmt.Errorf("offline capture needs the audio file but it could not be created: %w", err)
+		}
 		if err != nil {
 			log.Printf("warning: raw-audio recording unavailable: %v", err)
 		} else {
@@ -342,10 +377,31 @@ func runRecord(cmd *cobra.Command, args []string) error {
 				log.Printf("warning: writing raw-audio frame: %v", err)
 			}
 		})
+		// V-006 for audio: keep the WAV header current so a crash leaves a
+		// playable file of everything captured up to the last checkpoint.
+		go func() {
+			ticker := time.NewTicker(recovery.DefaultWriteInterval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					if err := wavWriter.Checkpoint(); err != nil {
+						log.Printf("warning: checkpointing raw-audio recording: %v", err)
+					}
+				}
+			}
+		}()
 	}
 
 	// Start the session (starts all pipeline stages).
 	if err := sess.Start(ctx); err != nil {
+		// Nothing was captured: don't leave an empty WAV behind.
+		if wavWriter != nil {
+			_ = wavWriter.Close()
+			_ = os.Remove(wavWriter.Path())
+		}
 		return fmt.Errorf("failed to start recording: %w", err)
 	}
 
@@ -363,7 +419,14 @@ func runRecord(cmd *cobra.Command, args []string) error {
 	if sttName == "" {
 		sttName = transcriber.ProviderDeepgram
 	}
-	fmt.Printf("Audio: system %s  mic on  | STT: %s (connected) | recording...\n", sysStatus, sttName)
+	sttStatus := sttName + " (connected)"
+	if offlineCapture {
+		sttStatus = "whisper (on this machine, after you stop)"
+	}
+	fmt.Printf("Audio: system %s  mic on  | STT: %s | recording...\n", sysStatus, sttStatus)
+	if offlineCapture {
+		fmt.Println("  (offline capture: no live transcript; nothing is sent over the network during the meeting)")
+	}
 	if sysStatus == "off" {
 		fmt.Println("  (system audio unavailable -- recording mic only)")
 	}
@@ -396,68 +459,99 @@ func runRecord(cmd *cobra.Command, args []string) error {
 		log.Printf("warning: shutdown timed out after 30 seconds")
 	}
 
+	segments := sess.Segments()
+
+	// Offline capture: transcribe the saved audio locally now (ID-014).
+	if offlineCapture {
+		if err := wavWriter.Close(); err != nil {
+			log.Printf("warning: finalizing raw-audio recording: %v", err)
+		}
+		fmt.Printf("Transcribing %s locally via Whisper (%s model)...\n", wavWriter.Path(), recordWhisperModel)
+		sttCtx, sttCancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		local, err := localstt.NewClient().TranscribeFile(sttCtx, wavWriter.Path(), localstt.Options{
+			ModelPath: whisperModelPath,
+			Language:  recordLanguage,
+		})
+		sttCancel()
+		if err != nil {
+			// Never lose the meeting: the audio is on disk.
+			fmt.Printf("Local transcription failed: %v\n", err)
+			fmt.Printf("The meeting audio is kept at: %s\n", wavWriter.Path())
+			fmt.Printf("Retry with: heimdall transcribe --file %s --model %s\n", wavWriter.Path(), recordWhisperModel)
+			return nil
+		}
+		segments = local
+		// The recovery transcript is what `heimdall analyze` retries from
+		// if analysis falls back below.
+		if recWriter != nil {
+			for _, seg := range segments {
+				recWriter.AddSegment(seg)
+			}
+			if err := recWriter.Flush(); err != nil {
+				log.Printf("warning: saving transcript: %v", err)
+			}
+		}
+		for _, seg := range segments {
+			displaySegment(seg)
+		}
+	}
+
 	// Print summary.
-	printSummary(sess)
+	printSummary(recordedDuration, segments)
 
-	// Stage 5: Analyze via Claude (API key or a local Claude Code login,
-	// depending on --analyzer).
+	// Stage 5: Analyze via the selected backend (Anthropic API, a local
+	// Claude Code or Codex login, or an on-device Ollama model).
 	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
-	analysisAvailable := recordAnalyzer == analyzer.ProviderClaudeCode || anthropicKey != ""
+	analysisAvailable := !analyzer.RequiresAPIKey(recordAnalyzer) || anthropicKey != ""
 
-	if !analysisAvailable && len(sess.Segments()) > 0 {
+	if !analysisAvailable && len(segments) > 0 {
 		fmt.Println()
-		fmt.Println("Note: ANTHROPIC_API_KEY not set -- Claude analysis skipped.")
+		fmt.Println("Note: ANTHROPIC_API_KEY not set -- analysis skipped.")
 		fmt.Println("The raw transcript was displayed above but no meeting note was saved.")
 		fmt.Println("To enable analysis: export ANTHROPIC_API_KEY=your_key")
 		fmt.Println("  or reuse an existing Claude Code login: heimdall record --analyzer claude-code")
+		fmt.Println("  or analyze fully on-device:             heimdall record --analyzer ollama")
 		fmt.Println("To analyze this session later: heimdall recover")
 	}
-	if analysisAvailable && len(sess.Segments()) > 0 {
-		if recordAnalyzer == analyzer.ProviderClaudeCode {
-			fmt.Println("Generating meeting summary via Claude Code (local login)...")
-		} else {
-			fmt.Println("Generating meeting summary via Claude...")
-		}
-
+	if analysisAvailable && len(segments) > 0 {
 		// Config was pre-loaded and validated before recording started.
 		// Reuse the same cfg variable to avoid loading config twice.
-
-		// Determine the model: config value, then fallback to the package
-		// default -- but only for the API backend. claude-code leaves the
-		// model unset by default so it uses whatever the user's own `claude`
-		// install is configured for; an explicit config override still wins
-		// on either backend.
-		model := ""
-		if cfg != nil && cfg.Claude.Model != "" && !strings.HasPrefix(cfg.Claude.Model, "${") {
-			model = cfg.Claude.Model
-		}
-		if recordAnalyzer != analyzer.ProviderClaudeCode && model == "" {
-			model = analyzer.DefaultModel
-		}
-
-		claude, err := analyzer.NewFromName(recordAnalyzer, anthropicKey)
+		setup, err := newAnalyzerSetup(recordAnalyzer, cfg, anthropicKey)
 		if err != nil {
 			log.Printf("warning: %v", err)
 			return nil
 		}
+		fmt.Printf("Generating meeting summary via %s...\n", setup.Label)
+
 		analyzeOpts := heimdall.AnalyzeOpts{
-			Model:        model,
+			Model:        setup.Model,
 			Language:     recordLanguage,
 			Participants: participants,
 			Keywords:     keywords,
 		}
 
-		analyzeCtx, analyzeCancel := context.WithTimeout(context.Background(), 120*time.Second)
+		analyzeCtx, analyzeCancel := context.WithTimeout(context.Background(), setup.Timeout)
 		defer analyzeCancel()
 
-		note, err := claude.Summarize(analyzeCtx, sess.Segments(), analyzeOpts)
+		note, err := setup.Analyzer.Summarize(analyzeCtx, segments, analyzeOpts)
 		if err != nil {
-			log.Printf("warning: Claude analysis failed: %v", err)
+			log.Printf("warning: analysis failed: %v", err)
 		}
 
-		// Detect fallback note from exhausted retries (V-009).
-		if note != nil && note.IsFallback {
-			fmt.Println("Warning: Claude analysis failed after retries. Raw transcript will be saved.")
+		// Detect fallback note from exhausted retries (V-009). Keep the
+		// recovery transcript so the meeting can be re-analyzed -- a
+		// fallback note in the vault is raw text, not re-analyzable input.
+		keepTranscript := note != nil && note.IsFallback
+		if keepTranscript {
+			transcriptPath := ""
+			if recWriter != nil {
+				if err := recWriter.Flush(); err != nil {
+					log.Printf("warning: saving transcript for retry: %v", err)
+				} else {
+					transcriptPath = recWriter.FilePath()
+				}
+			}
+			printFallbackGuidance(setup, note, transcriptPath)
 		}
 
 		if note != nil {
@@ -484,8 +578,9 @@ func runRecord(cmd *cobra.Command, args []string) error {
 						fmt.Println("\nTo retry writing, use: heimdall recover")
 					} else {
 						fmt.Printf("Meeting note saved: %s\n", path)
-						// V-006: clean up recovery file after successful write.
-						if recWriter != nil {
+						// V-006: clean up recovery file after successful
+						// write -- unless the note is only a fallback.
+						if recWriter != nil && !keepTranscript {
 							_ = recWriter.Cleanup()
 						}
 					}
@@ -538,17 +633,22 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%02d:%02d:%02d", hours, minutes, seconds)
 }
 
-// printSummary prints the recording summary after shutdown.
-func printSummary(sess *session.MeetingSession) {
-	segments := sess.Segments()
-	duration := sess.Duration()
-	speakers := sess.SpeakerCount()
+// printSummary prints the recording summary after shutdown. It takes the
+// segments explicitly because with --transcriber whisper they come from the
+// post-meeting local transcription, not from the live session.
+func printSummary(duration time.Duration, segments []heimdall.Segment) {
+	speakers := make(map[int]struct{})
+	for _, seg := range segments {
+		if seg.IsFinal {
+			speakers[seg.Speaker] = struct{}{}
+		}
+	}
 
 	fmt.Println(strings.Repeat("-", 60))
 	fmt.Printf("Meeting recorded: %s | %d segments | %d speakers\n",
 		formatDuration(duration),
 		len(segments),
-		speakers,
+		len(speakers),
 	)
 	fmt.Println(strings.Repeat("-", 60))
 }

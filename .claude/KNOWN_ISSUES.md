@@ -1,6 +1,6 @@
-**Version**: 4.0
+**Version**: 4.1
 **Created**: 2026-03-28
-**Last Updated**: 2026-09-14
+**Last Updated**: 2026-09-19
 **Authors:** Omer Ufuk
 
 ---
@@ -15,12 +15,35 @@
 
 ## Open
 
+- **Codex always loads the user's global `~/.codex/AGENTS.md` into `--analyzer codex` calls** -- verified 2026-09-19 with a canary: `project_doc_max_bytes=0` stops project docs only, and no config key or feature flag disables the global file (`instructions=""` was tested and does not; it strips Codex's own base prompt instead). Measured impact: ~3.5K extra input tokens per call; output stays schema-valid, and the event stream shows no tool calls. The only full fix is a separate `CODEX_HOME`, which would mean relocating the user's Codex credentials (token-refresh risk), so it is not done. Keep personal instructions out of that file, or use another backend, if that matters.
+- **`qwen3:14b` fails 2 of 7 eval fixtures, both Turkish** (deterministic across runs at temperature 0): `tr-standup` attributes owners as "Speaker N" instead of the required "Unknown Speaker N" (instruction-following, not hallucination), and `tr-en-code-switch` (`--language multi`) summarizes a Turkish meeting with English technical terms in English. Naming the language in the prompt fixed the explicit `--language tr` case, and the `multi` instruction fixed code-switching for Haiku but not for `qwen3:14b`. For Turkish meetings, prefer `--language tr` over `multi` with the local backend, or a cloud backend. See `docs/EVALUATION.md`.
+- **Whisper `small` is not enough for Turkish or jargon-heavy meetings** -- measured on a real 57-minute meeting across all four model/language combinations: `small` produced a transcript the analyzer could extract nothing from (0 decisions, 0 action items) in *both* language modes, while `medium` produced 2 action items on auto and 2 decisions + 4 action items with `--language tr` (ID-016). Defaults moved to `small`; use `--whisper-model medium --language tr` for those meetings.
+- **Channel diarization collapses when the microphone hears the system output** -- if you are on speakers or leaky earbuds, both channels carry the same meeting audio at similar levels and whisper.cpp's energy-based `--diarize` attributes nearly everything to one speaker (measured: 221 of 224 segments). Use closed headphones, or a cloud transcriber for per-person speakers (ID-016).
+- **Live capture needs macOS privacy permissions** -- Microphone and "Screen & System Audio Recording" for whichever app runs `heimdall record` (Terminal, or the app that launches it). Verified 2026-09-19: without them the helper reports `screen-recording-permission: denied` and the microphone open fails or blocks at a pending permission prompt. Only the user can grant them.
+- **`--analyzer claude-code` subscription (OAuth) path not exercised end to end** -- the `--bare` auth bug is fixed (ID-015) and the backend passes 7/7 through the real binary, but with API-key auth: this machine's `claude` CLI was not logged in. First `claude /login` user confirms it.
+- **Local recall vs. cloud baseline is 83% (5/6 planted action items)**, one item under the brief's 85% bar; the miss is mid-meeting in a 1-hour English transcript. See `docs/EVALUATION.md`.
+- **Ollama only; LM Studio unsupported** -- deliberate (ID-011): OpenAI-compatible endpoints cannot set the context window per request.
+- **Transcripts longer than the local context window are refused, not chunked** -- map-reduce deliberately deferred (ID-011). Default `ollama.max_context` 32768 covers ~1 hour of English speech; raise it (qwen3:14b's maximum is 40960) or use a cloud backend for longer meetings.
+- **Codex model slugs will age** -- `gpt-5.6-luna`/`gpt-5.6-terra` come from Codex's local model catalog as of 2026-09-19; update `internal/analyzer/codex.go`, `.codex/config.toml`, `.codex/agents/*.toml`, and `AGENTS.md` together when Codex retires them.
+- **The committed SessionStart hook auto-runs `scripts/cloud-setup.sh` in cloud sessions** (root, inside the container). Benign today and logged step by step, but changes to that script or `.claude/settings.json` must be reviewed like a CI workflow file (security review, 2026-09-20).
+- **`scripts/cloud-setup.sh` repoints stale Go binaries** in the container (e.g. `/usr/local/go/bin/go` in `golang:1.24`) -- intentional and Linux-only, but surprising if someone runs it on a long-lived Linux workstation.
+
 - **Homebrew tap repo/token not yet created** -- `.goreleaser.yml`'s `homebrew_casks` config and `.github/workflows/release.yml` are live and v0.1.0's release ran successfully, but `github.com/0merUfuk/homebrew-heimdall` doesn't exist yet and no `HOMEBREW_TAP_TOKEN` secret is set. The release workflow correctly no-ops this step rather than failing (see "Resolved" below) -- but the tap itself is still an owner action (`docs/RELEASING.md` has the steps).
-- **`heimdall eval`'s quality baseline is still theoretical** -- the suite correctly detects and fails closed on degraded/fallback output (verified: 0/7 with the right root cause reported) but has never been run against a real model -- no sandbox credential was available this round either. The first real run is the actual baseline, not the design intent documented in `docs/EVALUATION.md`.
 - **No real live-meeting validation** -- everything through Whisper transcription + Claude analysis + Obsidian rendering was verified with a synthetic 2-speaker recording (real `say`+`ffmpeg` audio, real `whisper-cli`, real `claude` CLI graceful-degradation path) and a real downloaded-and-run release artifact, but an actual live meeting is the one thing that needs the owner physically present.
 - **macOS code-signing decision not made** -- binaries are unsigned/unnotarized; `docs/RELEASING.md` documents the `xattr` postflight-hook workaround in the interim. Needs an Apple Developer account, which only the owner can provision.
 
 ---
+
+## Resolved 2026-09-19 (branch `claude/heimdall-offline-analyzer-502957`)
+
+- **`--analyzer codex` unverified** -- live: 6/7, 6/7, 5/7 on the eval, 21/21 valid JSON (`docs/EVALUATION.md`).
+- **The Ollama client followed HTTP redirects** -- a redirecting service on the configured address could have received and forwarded the transcript (Go re-sends a POST body on 307/308) while the run was labeled on-device; redirects are now refused (found by an independent Codex review).
+- **A failed seek after a WAV checkpoint would have overwritten recorded audio** -- the header is now patched with a positional write that never moves the append offset (same review).
+
+- **`--analyzer claude-code` could never use a subscription login** -- `--bare` forbids OAuth/keychain auth; replaced by verified isolation flags (ID-015).
+- **No cloud baseline for the Analyze stage** -- measured: Haiku 6/7 (api), 7/7 (claude-code); see `docs/EVALUATION.md`.
+- **No way to capture a meeting fully offline** -- `record --transcriber whisper` (ID-014).
+- **A crash mid-recording left a WAV whose header claimed zero bytes** -- 30 s header checkpoints (ID-014).
 
 ## Resolved 2026-09-13/14 (11 PRs, #29-#41, merged to `main`; v0.1.0 tagged and released)
 
@@ -67,7 +90,7 @@ These are documented trade-offs, not bugs:
 | Deepgram Turkish code-switching not fully supported | `--keywords` flows through to Deepgram's keyword-boost parameter, improving English-tech-term recognition in Turkish meetings, but doesn't fully resolve TR+EN code-switching |
 | LLM may hallucinate action items | Anti-hallucination prompt engineering (V-013); now measurable via `heimdall eval`'s anti-hallucination checks (PR #31) |
 | Transcript content as prompt injection vector | Delimiter wrapping + sanitized --participants/--keywords (V-014); now measurable via `heimdall eval`'s injection-resistance check (PR #31) |
-| `ClaudeCodeAnalyzer` (PR #30) has never been run against a real logged-in `claude` CLI | Build sandbox had none. Unit-tested via an injectable subprocess runner against the real CLI's empirically-captured JSON contract; a live smoke test is an owner action. |
+| `ClaudeCodeAnalyzer` (PR #30) had never been run against a real `claude` CLI (superseded 2026-09-19: now 7/7 on the eval through the real binary, ID-015; an OAuth/subscription login is still unexercised) | Build sandbox had none. Unit-tested via an injectable subprocess runner against the real CLI's empirically-captured JSON contract; a live smoke test is an owner action. |
 
 ---
 

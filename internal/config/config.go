@@ -1,7 +1,9 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -15,6 +17,8 @@ type Config struct {
 	Deepgram DeepgramConfig     `yaml:"deepgram"`
 	Soniox   SonioxConfig       `yaml:"soniox,omitempty"`
 	Claude   ClaudeConfig       `yaml:"claude"`
+	Ollama   OllamaConfig       `yaml:"ollama,omitempty"`
+	Codex    CodexConfig        `yaml:"codex,omitempty"`
 	Obsidian ObsidianConfig     `yaml:"obsidian"`
 	Audio    AudioConfig        `yaml:"audio"`
 	Output   OutputConfig       `yaml:"output"`
@@ -61,11 +65,39 @@ type ClaudeConfig struct {
 	Model  string `yaml:"model"`
 
 	// Analyzer selects the meeting-analysis backend: "api" (default, calls
-	// the Anthropic Messages API directly with APIKey) or "claude-code"
+	// the Anthropic Messages API directly with APIKey), "claude-code"
 	// (shells out to a local, already-authenticated `claude` CLI so a user
-	// with a Claude subscription doesn't need a separate API key). See
-	// internal/analyzer.ProviderAPI / ProviderClaudeCode.
+	// with a Claude subscription doesn't need a separate API key), "ollama"
+	// (fully on-device model via a local Ollama server -- see OllamaConfig),
+	// or "codex" (shells out to a local, already-authenticated `codex` CLI --
+	// see CodexConfig). It lives under `claude:` for backward compatibility
+	// with existing config files, although two of the four backends are not
+	// Claude. See internal/analyzer.Provider*.
 	Analyzer string `yaml:"analyzer,omitempty"`
+}
+
+// OllamaConfig configures the local, on-device analyzer (claude.analyzer:
+// ollama). The zero value is valid: every field falls back to the
+// internal/analyzer defaults (http://localhost:11434, qwen3:14b, 32768).
+type OllamaConfig struct {
+	// BaseURL is the Ollama server root. Pointing it at a non-loopback host
+	// means transcripts leave this machine; heimdall says so when it runs.
+	BaseURL string `yaml:"base_url,omitempty"`
+
+	// Model is the Ollama model tag, e.g. "qwen3:14b".
+	Model string `yaml:"model,omitempty"`
+
+	// MaxContext caps the context window (tokens) heimdall requests. Larger
+	// fits longer meetings in one pass but uses more unified memory.
+	MaxContext int `yaml:"max_context,omitempty"`
+}
+
+// CodexConfig configures the Codex CLI analyzer (claude.analyzer: codex).
+// The zero value is valid: Model falls back to the cheapest reliable Codex
+// tier (internal/analyzer.DefaultCodexModel).
+type CodexConfig struct {
+	// Model is the Codex model slug, e.g. "gpt-5.6-luna".
+	Model string `yaml:"model,omitempty"`
 }
 
 // ObsidianConfig holds Obsidian vault configuration.
@@ -106,6 +138,13 @@ type Profile struct {
 	Keywords     []string `yaml:"keywords,omitempty"`
 	Language     string   `yaml:"language,omitempty"`
 }
+
+// Bounds for ollama.max_context. Below 8K not even a short meeting fits;
+// above 1M no current local model or Mac could hold the KV cache.
+const (
+	minOllamaContext = 8192
+	maxOllamaContext = 1 << 20
+)
 
 // envVarPattern matches ${VAR_NAME} references in config values.
 var envVarPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
@@ -225,17 +264,20 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	// Claude validation.
+	// Claude validation. The analyzer names are duplicated from
+	// internal/analyzer.Provider* so config keeps no dependency on the
+	// analyzer package; cmd/heimdall's TestConfigValidate_AcceptsEveryProvider
+	// fails if the two lists drift apart.
 	switch c.Claude.Analyzer {
-	case "", "api", "claude-code":
+	case "", "api", "claude-code", "ollama", "codex":
 	default:
-		return fmt.Errorf("claude.analyzer: unknown value %q (use \"api\" or \"claude-code\")", c.Claude.Analyzer)
+		return fmt.Errorf("claude.analyzer: unknown value %q (use \"api\", \"claude-code\", \"ollama\", or \"codex\")", c.Claude.Analyzer)
 	}
 	// api_key is only required for the "api" backend (the default, including
-	// an unset Analyzer field). "claude-code" shells out to a local `claude`
-	// login instead and never touches this key.
-	if c.Claude.Analyzer != "claude-code" && c.Claude.APIKey == "" {
-		return fmt.Errorf("claude.api_key is required (or set claude.analyzer: claude-code to use a local Claude Code login instead)")
+	// an unset Analyzer field). The other backends use a local login or run
+	// on-device and never touch this key.
+	if (c.Claude.Analyzer == "" || c.Claude.Analyzer == "api") && c.Claude.APIKey == "" {
+		return fmt.Errorf("claude.api_key is required (or set claude.analyzer to claude-code, codex, or ollama to analyze without an Anthropic API key)")
 	}
 	if c.Claude.Model == "" {
 		return fmt.Errorf("claude.model is required")
@@ -246,6 +288,17 @@ func (c *Config) Validate() error {
 	// change every time Anthropic ships a new model name.
 	if !isEnvVarRef(c.Claude.Model) && !strings.HasPrefix(c.Claude.Model, "claude-") {
 		return fmt.Errorf("claude.model: %q does not look like a Claude model id (expected a \"claude-...\" name)", c.Claude.Model)
+	}
+
+	// Ollama validation (conditional, like Soniox: the zero value is valid).
+	if c.Ollama.BaseURL != "" && !isEnvVarRef(c.Ollama.BaseURL) {
+		u, err := url.Parse(c.Ollama.BaseURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return fmt.Errorf("ollama.base_url: %q is not an http(s) URL (e.g. http://localhost:11434)", c.Ollama.BaseURL)
+		}
+	}
+	if c.Ollama.MaxContext != 0 && (c.Ollama.MaxContext < minOllamaContext || c.Ollama.MaxContext > maxOllamaContext) {
+		return fmt.Errorf("ollama.max_context: %d is out of range [%d, %d]", c.Ollama.MaxContext, minOllamaContext, maxOllamaContext)
 	}
 
 	// Obsidian validation.
@@ -270,8 +323,9 @@ func (c *Config) Validate() error {
 }
 
 // ResolveEnvVars expands all ${VAR_NAME} references in string fields with
-// their corresponding environment variable values. Returns an error if any
-// referenced environment variable is not set.
+// their corresponding environment variable values. Every resolvable field is
+// resolved; fields whose variable is unset keep their ${VAR} reference, and
+// the returned error lists all of them.
 func (c *Config) ResolveEnvVars() error {
 	resolvers := []struct {
 		name  string
@@ -285,6 +339,9 @@ func (c *Config) ResolveEnvVars() error {
 		{"soniox.language", &c.Soniox.Language},
 		{"claude.api_key", &c.Claude.APIKey},
 		{"claude.model", &c.Claude.Model},
+		{"ollama.base_url", &c.Ollama.BaseURL},
+		{"ollama.model", &c.Ollama.Model},
+		{"codex.model", &c.Codex.Model},
 		{"obsidian.vault_path", &c.Obsidian.VaultPath},
 		{"obsidian.meetings_folder", &c.Obsidian.MeetingsFolder},
 		{"obsidian.template", &c.Obsidian.Template},
@@ -292,15 +349,22 @@ func (c *Config) ResolveEnvVars() error {
 		{"output.language", &c.Output.Language},
 	}
 
+	// Resolve every field, collecting failures, rather than stopping at the
+	// first unset variable: a user on the fully local path (Whisper +
+	// Ollama) typically has no DEEPGRAM_API_KEY, and stopping at
+	// deepgram.api_key -- the first field -- used to leave every later
+	// ${VAR} reference (ollama.base_url, ...) silently unresolved.
+	var errs []error
 	for _, r := range resolvers {
 		resolved, err := resolveEnvVar(*r.field)
 		if err != nil {
-			return fmt.Errorf("%s: %w", r.name, err)
+			errs = append(errs, fmt.Errorf("%s: %w", r.name, err))
+			continue
 		}
 		*r.field = resolved
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // resolveEnvVar replaces all ${VAR} patterns in s with their environment

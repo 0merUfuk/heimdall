@@ -1,5 +1,39 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- `--analyzer ollama` -- fully on-device meeting analysis via a local [Ollama](https://ollama.com) server (`internal/analyzer/ollama.go`). With `heimdall transcribe`, the whole path from audio to Obsidian note is offline: no audio, transcript, or analysis leaves the machine. Default model `qwen3:14b`. Uses Ollama's **native** `/api/chat`, not its OpenAI/Anthropic-compatible endpoints: those cannot set the context window per request, and Ollama was measured silently truncating a 60-minute transcript to 4,096 tokens there while still returning valid, plausible JSON with early action items missing (`.claude/DECISIONS.md` ID-011). The context window is sized per transcript; a transcript that does not fit is refused with an actionable message, never truncated. Output is schema-constrained at decode time (`format`), reasoning is disabled for bounded extraction (`think:false`). New config section `ollama:` (`base_url`, `model`, `max_context`), all optional.
+- `--analyzer codex` -- analysis via a local, logged-in `codex` CLI (`codex exec`), the Codex counterpart of `claude-code`. Defaults to the cheapest reliable tier, `gpt-5.6-luna` at low reasoning effort (`codex.model` to override). Runs isolated from the user's Codex config, project docs, and repository (`--ignore-user-config --strict-config`, empty private temp dir, read-only sandbox, ephemeral session), with the system prompt passed as `developer_instructions` (ID-012).
+- `heimdall record --transcriber whisper` -- fully offline meeting capture: nothing is transcribed live and nothing goes over the network; the audio is saved and transcribed on the machine by whisper.cpp after the stop, then analyzed. With `--analyzer ollama` a meeting never leaves the Mac. `whisper-cli` and the model are checked before the meeting starts (`--whisper-model`, default `base`) (ID-014).
+- `heimdall eval --model <name>` to evaluate a specific model on the selected backend.
+- `docs/MANUAL_TESTING.md` Scenario 0: the fully offline live-meeting acceptance test -- permissions, a capture preflight that proves both channels carry audio, and an acceptance checklist.
+- `.gitleaksignore` recording the four reviewed, deliberately fake secrets in test fixtures and rule docs, so `gitleaks dir .` is clean and a real leak stands out.
+- `heimdall doctor` reports the `codex` CLI and Ollama (reachable + default model pulled); the analysis check now passes if any of the four backends is usable.
+- `config set` keys: `claude.analyzer`, `ollama.base_url`, `ollama.model`, `ollama.max_context`, `codex.model`.
+- Codex developer setup: project `.codex/config.toml` (cost-efficient model defaults for this repo only) and per-role `model` / `model_reasoning_effort` / `sandbox_mode` in `.codex/agents/*.toml`; `AGENTS.md` rewritten against current reality (ID-012).
+- Cloud environments: `scripts/cloud-setup.sh` for Codex cloud and Claude Code on the web (installs the go.mod Go version, a C compiler for cgo, pre-builds everything), wired into Claude Code on the web through a `.claude/settings.json` SessionStart hook. The full test suite passes on Linux under `-race` (ID-013).
+
+### Changed
+- The analysis prompt names the output language ("Turkish (tr)") instead of passing the bare code (measured on `qwen3:14b`: the bare code produced English summaries of Turkish meetings), and `--language multi` now asks for the meeting's main language (measured on `claude-haiku-4-5`: a code-switched Turkish meeting went from 0/3 to 3/3 Turkish summaries). The language value is now sanitized like `--participants`/`--keywords`.
+- `recover`, `analyze`, and `eval` honor `claude.analyzer` from config when `--analyzer` is not passed (previously only `record` did, although README documented it for all of them).
+- Analysis timeouts are per backend: API and `claude-code` keep 120s; `ollama` gets 20 minutes and `codex` 10 minutes. `eval`'s per-fixture budget scales the same way.
+- `eval` passes the configured model for the selected backend (previously `claude-code` evals ignored `claude.model`).
+- `analyzer.NewFromName` takes an `analyzer.Settings` struct instead of a bare API key.
+
+### Fixed
+- **System audio was never captured on hardware whose Core Audio tap is not 48kHz stereo** (pre-existing since v0.1.0): the Swift helper installed the tap with a hardcoded format, AVAudioEngine threw a format mismatch, and the helper crash-looped while the terminal still reported `Audio: system on` -- a meeting would have recorded only the local microphone. The tap now uses the node's own format and converts to 48kHz stereo with an `AVAudioConverter`. Found by the first real live meeting test (ID-016).
+- `record --whisper-model` and `transcribe --model` now default to `small` instead of `base`: on a real Turkish technical meeting the weaker model produced a transcript the analyzer could extract nothing from. `medium` is documented for Turkish or jargon-heavy meetings.
+- `scripts/cloud-setup.sh` now verifies the fallback Go tarball against SHA-256 sums pinned in the repo and refuses to install an unverified toolchain (the preferred module-proxy path was already checksum-verified); rc-file edits keep the file's own permissions.
+- The WAV writer stops at the 4 GiB format limit (~18.6 h) instead of wrapping its size counter, which would have left the whole recording unreadable.
+- The Ollama client no longer follows HTTP redirects: Go re-sends a POST body on 307/308, so a redirecting service on the configured address could have forwarded the transcript to another host while the run was labeled on-device.
+- The WAV header checkpoint now uses a positional write; previously a failed seek after rewriting the header would have made the next frame overwrite recorded audio.
+- `--analyzer claude-code` could never use a Claude subscription login: it passed `--bare`, under which Claude Code reads only `ANTHROPIC_API_KEY`/`apiKeyHelper`, never OAuth. `--bare` is gone; the isolation it provided (no hooks, plugins, CLAUDE.md, auto-memory, MCP servers, or saved session in a call that carries a meeting transcript) is rebuilt from `--restricted`, `--strict-mcp-config`, `--no-session-persistence`, `--disable-slash-commands`, an empty temp working directory, and three `CLAUDE_CODE_DISABLE_*` variables -- verified against a live model with planted hooks and a planted CLAUDE.md (ID-015).
+- A crash mid-recording left the `--save-audio` WAV with a header claiming zero bytes of audio (the size was only written on close); the header is now checkpointed every 30 seconds. A recording that fails to start no longer leaves an empty WAV behind.
+- A failed analysis no longer deletes the only re-analyzable copy of the meeting: `record`, `recover`, and `analyze` used to delete the recovery transcript after writing a *fallback* (raw-transcript) note. The file is now kept and the exact retry command is printed. heimdall never falls back from a local backend to a cloud one on its own.
+- `heimdall config set claude.analyzer ...`, documented in README, returned "unknown config key".
+- `${VAR}` references in config stopped resolving at the first unset variable: without `DEEPGRAM_API_KEY` (the first field, and typically unset on the fully local path) every later reference, e.g. `ollama.base_url: ${...}`, was silently left unresolved. All resolvable fields are now resolved and every unset variable is reported.
+
 ## v0.1.0 (2026-09-14)
 
 ### Added

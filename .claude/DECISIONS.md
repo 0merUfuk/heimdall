@@ -1,6 +1,6 @@
 **Version**: 1.0
 **Created**: 2026-03-28
-**Last Updated**: 2026-04-18
+**Last Updated**: 2026-09-19
 **Authors:** Omer Ufuk
 
 ---
@@ -126,7 +126,7 @@ Chose plain Go over a dedicated Python eval framework (promptfoo/deepeval/ragas/
 **Consequences**:
 - `heimdall eval` / `make eval` exist as a real regression harness: a maintainer can run it before tagging a release and get an immediate pass/fail plus per-check detail.
 - The judge layer is deliberately NOT wired into the public CI workflow (`.github/workflows/ci.yml` has no secrets configured) -- provisioning `ANTHROPIC_API_KEY` as a repo secret for CI-gated judging is a decision left to the maintainer, not defaulted silently into a public workflow.
-- Not yet covered: the suite has never been run against a real model (no live credentials in the build sandbox) -- see `docs/EVALUATION.md`'s "Known limitation" section. The first real `heimdall eval` run is the actual quality baseline, not this entry's design intent.
+- First real runs landed 2026-09-19/20 against four backends (local `qwen3:14b`, Anthropic API, Claude Code, Codex) -- numbers in `docs/EVALUATION.md`'s "Measured results". The suite found real defects in both directions: it caught the local model's Turkish failures, and its name-traceability check flags joint owners ("Dana and Lena") as untraceable, a refinement noted there. The first real `heimdall eval` run is the actual quality baseline, not this entry's design intent.
 
 ### ID-007: Raw-audio recording as a session-level tap, not a Transcriber
 
@@ -189,3 +189,127 @@ While building this, a filename bug surfaced: `internal/recovery.sanitizeTitle` 
 - Real per-call observability exists now (`analyzer: model=claude-haiku-4-5 input_tokens=1842 output_tokens=412 latency=1.203s`), usable for debugging slow/expensive analyses or a future `heimdall stats`-style command, without owning a pricing table that can silently go wrong.
 - `ClaudeCodeAnalyzer` (the `--analyzer claude-code` subprocess backend) is not covered by this change -- its own `claude -p --output-format json` envelope already reports `total_cost_usd` directly from the CLI's own live accounting, which is authoritative in a way a hardcoded constant here could never be. Wiring that through is a natural next step now that both are merged to the same base, not duplicated logic to add now.
 - `doCallAPI` is a pure internal refactor (return signature grew a value, not observably different to any caller) -- covered by two new tests asserting the log line's exact content on success and its absence on total failure, not just that `Summarize` still returns the right note.
+
+### ID-011: `OllamaAnalyzer` -- on-device analysis over Ollama's native API, never over its OpenAI/Anthropic-compatible endpoints
+
+**Date**: 2026-09-19
+
+**Context**: Stage 5 was the last stage with no offline path: with `heimdall transcribe` (ID-008) audio and transcript could stay on-device, but analysis always went to Anthropic (API or `claude` CLI). The goal is privacy and offline capability, not cost -- `claude-haiku-4-5` is already cheap. Before choosing an integration point, the candidate endpoints were probed on Ollama 0.20.2 (M4 Pro, 24 GB) with the real `systemPrompt` and real transcripts:
+
+| Probe | Result |
+|---|---|
+| `/v1/messages` (Anthropic-compatible) with `ClaudeAnalyzer`'s exact request shape | Works -- a base-URL override would have been zero new code |
+| Short fixture via `/v1/chat/completions` (plain and `json_schema`) and native `/api/chat` + `format` | Valid JSON every time, correct extraction |
+| **60-minute transcript (12,971 tokens) via `/v1/chat/completions`** | Server log `truncating input prompt limit=4096 prompt=12971 keep=4`. Response was **valid, plausible JSON with the meeting's early action item silently missing** -- and the front-truncation also dropped the system prompt (anti-injection rules, schema) |
+| Same transcript via native `/api/chat` with `options.num_ctx=16384` | All 12,971 tokens read, every planted item extracted, 55s |
+
+**Decision**:
+1. **Native `/api/chat`, not the portable endpoints.** Only the native API sets the context window per request; the OpenAI- and Anthropic-compatible endpoints inherit the server default and truncate silently. The failure mode is not "bad JSON" (detectable) but "good-looking, incomplete notes" (not detectable downstream). Native also gives decode-time schema enforcement (`format`), `think:false` for reasoning models, and `prompt_eval_count` for a truncation guard. Cost: LM Studio is not supported. It was not installed, so any LM Studio support would have been untested, and its OpenAI-compatible endpoint fixes context at model-load time anyway, so "portability" would not have solved the real problem there either (unverified inference).
+2. **Size, never truncate.** `num_ctx` is sized to the prompt (conservative bytes/3 estimate + 4096 output reserve) in fixed buckets (8K/16K/32K/40K/...) so repeat runs reuse a warm model, capped by the model's trained context (`/api/show`) and `ollama.max_context` (default 32768). A transcript that does not fit is **never sent**: the V-009 fallback note is returned with an actionable message. After the call, `prompt_eval_count >= num_ctx` or `done_reason == "length"` is treated as a failure, never rendered.
+3. **Single pass; map-reduce deferred.** A measured 60-minute English meeting needs ~13K real tokens and fits one pass. Map-reduce is the highest quality risk (merge passes drop detail) and is not needed until real meetings overflow; the clean refusal above makes that visible when it happens.
+4. **No automatic cloud fallback.** A user who chose on-device analysis for privacy must never have the meeting uploaded because something failed locally. Local failure produces the existing raw-transcript note; the recovery transcript is **kept** and the CLI prints an explicit, user-initiated `heimdall analyze --file <path> --analyzer api` retry. A non-loopback `ollama.base_url` is labeled "REMOTE" in the CLI output so the privacy claim is always true.
+5. **Default model `qwen3:14b`** (9.3 GB Q4_K_M, 40K context) -- the smallest tier that passes the eval suite; see results below. `qwen2.5:7b` was measured and rejected.
+
+**Consequences**:
+- `heimdall transcribe` + `heimdall analyze --analyzer ollama` is a fully offline path end to end (audio, transcript, and analysis never leave the machine). Live `heimdall record` still needs a cloud transcriber (Deepgram/Soniox) -- out of scope here.
+- Two pre-existing bugs fixed along the way because the fallback story depends on them: (a) `record` and `analyze`/`recover` deleted the recovery transcript after writing a *fallback* note, destroying the only re-analyzable copy of a failed meeting; (b) `claude.analyzer` from config was honored only by `record`, although README documented it for `recover`/`analyze` too, and `config set claude.analyzer` was not a settable key.
+- The shared prompt now names the output language ("Turkish (tr)") instead of passing the bare code: measured on `qwen3:14b`, "in tr" produced English summaries and "in Turkish (tr)" produced Turkish. `--language multi` gets an explicit "main language spoken in the meeting" instruction: no effect on `qwen3:14b`, but it took `claude-haiku-4-5` from 0/3 to 3/3 Turkish summaries on a code-switched meeting. The language code is also sanitized like `--participants`/`--keywords` now (it was the one prompt input that was not).
+- Analysis timeouts are per backend (`analyzer.DefaultTimeoutFor`): API/claude-code keep 120s; Ollama gets 20 min (cold model load + minutes of inference on long meetings).
+
+**Measured results** (M4 Pro 24 GB, temperature 0, 3 runs each, byte-identical -- full detail in `docs/EVALUATION.md`):
+
+| | `qwen3:14b` (default) | `qwen2.5:7b` |
+|---|---|---|
+| Golden fixtures | 5/7 (both misses Turkish) | 0/7 |
+| Valid JSON, first attempt | 21/21 | 21/21 |
+| 60-min meeting, planted-item recall | EN 3/4 (mid-meeting item missed), TR 4/4 | -- |
+| 60-min meeting latency | EN 2 m 14 s, TR 3 m 40 s | 55 s (probe, EN at lower density) |
+| 120-min meeting | refused, nothing sent (~45K tokens > 40,960) | -- |
+
+Against the local-analyzer brief's bars: JSON validity 100% (bar >= 98%) and the offline end-to-end proof (sandboxed, no network) pass; long-meeting action-item recall is 83% against both planted ground truth and the Haiku baseline measured later the same day (bar >= 85%; see `docs/EVALUATION.md`); the blind summary A/B is the owner's call.
+
+### ID-012: `CodexAnalyzer` and a cost-tiered Codex model policy
+
+**Date**: 2026-09-19
+
+**Context**: The owner uses Codex as a second execution runtime and asked for "full Codex compatibility" at the lowest reliable cost, mirroring the Claude/Haiku default. Two separate things: (1) Codex as an analysis backend for heimdall users with a ChatGPT/Codex plan, and (2) Codex as a developer on this repository. The repo's `.codex/` mirror had been produced by a blind "Claude"->"Codex" rename (`.Codex/SERVICE_CONTEXT.md` paths that do not exist, "Anthropic Codex (REST)", "analyzes via Codex") and set no model anywhere, so every Codex agent inherited whatever the developer's global Codex default is -- often a high or maximum reasoning effort, the most expensive way to run routine work.
+
+**Decision**:
+1. **`--analyzer codex`** shells out to `codex exec`, the Codex counterpart of `claude-code` (ID-005), sharing `summarizeWithRetry`. Default model `gpt-5.6-luna` ("fast and affordable" tier) at `model_reasoning_effort="low"` -- a bounded extraction task does not need a frontier model or deliberate reasoning. Every flag was verified against codex-cli 0.154.0: `--ignore-user-config` (the global model/effort/hooks/MCP servers do not apply; auth still does), `--strict-config` (a future Codex that drops `developer_instructions` fails loudly instead of silently analyzing without the anti-injection rules -- the key was verified to exist because `--strict-config` rejects unknown keys), `-c developer_instructions=<systemPrompt>` (keeps the system/transcript split, V-014), `-c project_doc_max_bytes=0`, `-C <empty 0700 temp dir>`, `--sandbox read-only`, `--ephemeral`, `--ignore-rules`. The answer is read from `-o` (`--output-last-message`); the `--json` event stream is used only for failures (`turn.failed`, or `error` with no `turn.completed`) and token usage.
+2. **No `--output-schema` for Codex.** OpenAI structured outputs require `additionalProperties:false` on every object, which cannot express `speaker_map`'s dynamic keys; enforcing it would need a backend-specific response rewrite. Codex follows the prompt-described schema exactly like the claude-code backend does.
+3. **Cost-tiered Codex models for development** (all verified to load: Codex deserializes agent files strictly -- a planted unknown key produced "Ignoring malformed agent role definition", the real files produce zero warnings):
+   - Project `.codex/config.toml` (verified loaded for this repo only): main session `gpt-5.6-terra` at `medium`.
+   - `gpt-5.6-terra`/`medium` for roles whose mistakes ship bugs or bad decisions: developer, reviewer, security-reviewer, tech-lead, strategist, architect.
+   - `gpt-5.6-luna`/`medium` for bounded, procedural roles: manager, tester, product-lead, growth-lead.
+   - `sandbox_mode = "read-only"` for the roles whose Claude counterparts are read-only (reviewer, security-reviewer, tech-lead, strategist).
+   - The frontier tier (`gpt-6-astra`) and high/xhigh/ultra effort are never defaults; escalate per task on the command line.
+4. `AGENTS.md` rewritten against current reality: shared project state lives in `.claude/` (Codex agents read it there), Codex agent definitions in `.codex/agents/`, and the auto-loaded Claude rules (`.claude/rules/*.md`) are listed as required reading because Codex does not auto-load them.
+
+**Consequences**:
+- Verified live after the usage limit reset: 6/7, 6/7, 5/7 on the eval, 21/21 valid JSON, 6-16 s per fixture; the success event shapes (`item.completed` agent_message, `turn.completed` usage) match the parser. Each call carries ~16.5K input tokens of Codex's own prompt -- the "cheapest model" default keeps the per-token price low, but Codex is not the lowest-overhead backend.
+- The global `~/.codex/AGENTS.md` IS injected despite `project_doc_max_bytes=0` (canary-verified), and no config key or feature flag disables it; impact measured and documented in `.claude/KNOWN_ISSUES.md`.
+- No pricing data was available locally; the tiering relies on the model catalog's own descriptions ("fast and affordable" vs "balanced"). Slugs come from the local `models_cache.json` as of 2026-09-19 and will need updating when Codex retires them.
+
+### ID-013: Cloud environments (Codex cloud, Claude Code on the web) via one setup script
+
+**Date**: 2026-09-19
+
+**Context**: Both cloud agents run Linux containers. `go build` of this repo fails on Linux without cgo (`internal/audio` uses malgo), the module requires Go 1.27.1 (newer than typical images), the official `golang` images set `GOTOOLCHAIN=local`, and Codex cloud's agent phase has no internet by default.
+
+**Decision**: `scripts/cloud-setup.sh` (idempotent, Linux-only) installs the exact go.mod Go version when the image's is older -- preferably as Go's own toolchain module through `proxy.golang.org`, because Claude Code's cloud allowlist (verified in its docs) includes `proxy.golang.org` but not `dl.google.com`, where `go.dev/dl` tarball downloads redirect; the tarball is only the fallback for images with no Go >= 1.21 -- ensures a C compiler for cgo, downloads modules, and builds + vets every package during setup. No build tags or code changes were needed: with cgo and a compiler, every package (malgo included) builds, and the **entire test suite passes on Linux under `-race`** (verified in `ubuntu:24.04` and `golang:1.24` on arm64; setup plus the changed packages' tests also verified on `linux/amd64` under emulation, the likely Codex cloud architecture). Claude Code on the web runs it from a committed `.claude/settings.json` SessionStart hook (`--if-remote`: a no-op unless `CLAUDE_CODE_REMOTE=true`); Codex cloud runs it as the environment's setup script.
+
+**Consequences**:
+- Claude Code on the web's documented contract matches this design: the VM sets `CLAUDE_CODE_REMOTE=true`, repo `.claude/settings.json` SessionStart hooks run in single-repo cloud sessions, setup scripts run as root on Ubuntu 24.04 (the image tested here), and Go + GCC are preinstalled. Verified with `go.dev`/`dl.google.com` made unreachable in the container: the toolchain-module path still installs Go 1.27.1 and the build passes.
+- Two real portability bugs were found only by running the script in containers, not by reading it: Ubuntu's `~/.bashrc` returns early for non-interactive shells (an appended PATH line never runs in agent shells), and an older Go earlier on PATH (`/usr/local/go/bin` in `golang:1.24`) shadowed the new one. The script now symlinks into `/usr/local/bin` and repoints stale Go binaries -- acceptable only because it exits on anything but Linux containers.
+- A cloud container can build, vet, lint, run all unit tests, and run `heimdall eval` against a remote backend. It cannot capture audio (Core Audio Taps / Swift helper are macOS-only), run whisper.cpp, or reach a local Ollama.
+- Security review (2026-09-20) raised the fallback toolchain download: the preferred module-proxy path is verified against Go's checksum database, but the `go.dev` tarball fallback was not. Its SHA-256 sums are now pinned in the script (from `https://go.dev/dl/?mode=json`) and verified before extraction; a version whose sums are not pinned refuses the tarball path rather than installing an unverified toolchain. Verified in containers, including a deliberately tampered pin (install refused, no Go on PATH afterwards).
+- The same review flagged the committed SessionStart hook as a supply-chain surface: it runs `scripts/cloud-setup.sh` automatically in cloud sessions, with root in the container. The script is deliberately small, logs every privileged action (package install, `/usr/local/bin` symlinks, rc-file edits), and is Linux-container-only. **Any change to `scripts/cloud-setup.sh` or `.claude/settings.json` deserves the same review bar as a CI workflow file.**
+
+### ID-014: `record --transcriber whisper` -- fully offline meeting capture
+
+**Date**: 2026-09-19
+
+**Context**: ID-011 made analysis offline and ID-008 made transcription offline, but only for an existing WAV -- and the only way to capture a meeting, `heimdall record`, refused to start without a working Deepgram or Soniox key. So "a meeting that never leaves the machine" was not actually possible. This surfaced concretely when the only Deepgram key available for a live test was rejected (401).
+
+**Decision**: `--transcriber whisper` selects `transcriber.CaptureOnlyTranscriber`, a Stage 3 stand-in that transcribes nothing live (no network, no key). The session captures and mixes as usual; the audio is always saved (a WAV-creation failure is fatal before the meeting starts, because the WAV is the only record), and after the stop the record command runs the existing batch `internal/localstt` over it, writes the recovery transcript, and analyzes it with the selected backend. `whisper-cli` and the model are checked *before* the meeting. This is ID-007's batch design reached from `record`, not a streaming Whisper transcriber. With `--analyzer ollama` the meeting never leaves the machine.
+
+**Consequences**:
+- No live transcript in this mode; the terminal says so.
+- The saved WAV is now checkpointed every 30 seconds (`WAVWriter.Checkpoint`, V-006's cadence) in every `--save-audio` recording: previously the header's size was only written at `Close()`, so a crash mid-meeting left a file claiming zero bytes of audio -- in whisper mode, the only copy of the meeting. A failed start no longer leaves an empty WAV behind.
+- Live capture needs macOS Microphone and "Screen & System Audio Recording" permission for the app that runs heimdall (unchanged requirement, but now the only one for an offline meeting).
+
+### ID-015: `--analyzer claude-code` without `--bare`
+
+**Date**: 2026-09-19
+
+**Context**: `ClaudeCodeAnalyzer` passed `--bare`, and Claude Code 2.1.271's own `--help` says that under `--bare` auth is "strictly ANTHROPIC_API_KEY or apiKeyHelper (OAuth and keychain are never read)" -- so the backend could never use the subscription login it exists for (ID-005). But `--bare` was also its isolation: no hooks, plugins, CLAUDE.md, or auto-memory in a call that carries a meeting transcript.
+
+**Decision**: Drop `--bare`; rebuild the isolation from narrower, verified pieces: `--restricted` (ignores user/project/local settings, so their hooks and enabled plugins do not load), `--strict-mcp-config`, `--no-session-persistence`, `--disable-slash-commands`, an empty private working directory, and `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`, `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` -- each variable name confirmed present in the installed binary (a documentation summary had offered two that do not exist).
+
+**Evidence**: against a live model, with a throwaway Claude config dir containing a user-level `CLAUDE.md` secret word and SessionStart/UserPromptSubmit hooks: plain `claude -p` answered the secret word and fired both hooks; heimdall's invocation answered "NONE" and fired neither. `heimdall eval --analyzer claude-code --model claude-haiku-4-5` then passed 7/7 through the real binary, with no session written to disk.
+
+**Consequences**: the subscription (OAuth) path itself could not be exercised -- the machine's `claude` CLI was not logged in, and runs used API-key auth -- so it rests on Claude Code's documented behavior without `--bare`. The first `claude /login` user confirms it.
+
+### ID-016: Swift tap format mismatch, and whisper model size as an analysis-quality gate
+
+**Date**: 2026-09-20 (found by the first real live meeting test)
+
+**Context**: The first live test of `record --transcriber whisper` was preceded by a 15-second capture preflight. It reported `system(L) peak=0` while the microphone captured fine.
+
+**Finding 1 -- system audio was never captured on hardware whose tap is not 48kHz stereo (pre-existing since v0.1.0).** `audio-helper` read the tap's real format (44.1kHz mono on a USB headset output), logged "mono tap detected", and then installed the tap with a hardcoded 48kHz stereo format anyway, trusting Core Audio to convert. AVAudioEngine instead threw `Failed to create tap due to format mismatch`; the helper crashed, the Go watchdog restarted it three times and gave up. The status line still read `Audio: system on`, so a meeting would have recorded **only the local microphone** -- every remote participant silently missing. Fixed by installing the tap with the node's own format and converting to the mixer's contract (48kHz stereo Float32) with an `AVAudioConverter`. Preflight after the fix: `system(L) peak 0 -> 9717`.
+
+**Finding 2 -- transcription quality gates analysis quality.** The same 57-minute Turkish technical meeting, same audio, same Codex analyzer, all four combinations measured (one run per cell; Codex is not deterministic, so treat single-item differences as noise):
+
+| Whisper model | Language | Decisions | Action items | Segments | Transcription time |
+|---|---|---|---|---|---|
+| `small` | auto | 0 | 0 | 224 | 51 s |
+| `small` | `tr` | 0 | 0 | 224 | 55 s |
+| `medium` | auto | 0 | 2 | 299 | 145 s |
+| `medium` | `tr` | 2 | 4 (with owners) | 312 | 178 s |
+
+Model size is the dominant variable: `small` yields nothing extractable in either language mode, because it mangles the domain vocabulary ("YAML" -> "yamul dosyeti"). An explicit `--language` adds on top of the bigger model rather than substituting for it. The empty note was a transcription failure, not an analyzer failure. `record`'s and `transcribe`'s default moved from `base` to `small`, and `medium` + an explicit language is documented for Turkish or jargon-heavy meetings.
+
+**Finding 3 -- channel diarization collapses when the microphone hears the system output.** Both channels were verified genuinely independent (raw samples differ; no correlation at any lag), but their levels were nearly identical because the mic picked up the meeting audio and music. whisper.cpp's `--diarize` splits by relative per-channel energy, so 221 of 224 segments landed on one speaker. Headphones that do not leak are the practical fix; per-individual diarization needs a cloud transcriber (ID-008 already documents the coarseness).
+
+**Consequences**: the live test earned its keep -- Finding 1 is invisible to every unit test, the synthetic-audio suites, and the eval fixtures, because they never exercise a real Core Audio tap.
+

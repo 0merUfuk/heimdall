@@ -1,6 +1,6 @@
-**Version**: 5.0
+**Version**: 5.1
 **Created**: 2026-03-28
-**Last Updated**: 2026-09-14
+**Last Updated**: 2026-09-19
 **Authors:** Omer Ufuk
 
 ---
@@ -18,6 +18,18 @@
 ## Status (2026-09-14)
 
 **v0.1.0 is tagged and released**: [github.com/0merUfuk/heimdall/releases/tag/v0.1.0](https://github.com/0merUfuk/heimdall/releases/tag/v0.1.0). 11 PRs (#29-#41) merged into `main` over 2026-09-13/14, closing the CI break, adding a second Analyzer backend, a real eval system, local Whisper transcription, an MCP server, cost/latency observability, a lint/gofmt CI gate, a real (previously broken) release pipeline, and tag-triggered release automation. Full contents: `.claude/SERVICE_CONTEXT.md`.
+
+## In review: local/offline analyzer + Codex + cloud (branch `claude/heimdall-offline-analyzer-502957`)
+
+Built and verified locally; see `.claude/SERVICE_CONTEXT.md` and `.claude/DECISIONS.md` ID-011..013. Remaining before/after merge:
+
+| Task | Owner | Why |
+|------|-------|-----|
+| Review + merge the branch | Owner | Nothing merged yet |
+| ~~`heimdall eval --analyzer codex`~~ | Done 2026-09-20 | 6/7, 6/7, 5/7 live; see `docs/EVALUATION.md` |
+| Live meeting test of `record --transcriber whisper --analyzer ollama` | Owner present in a real meeting; needs macOS Microphone + Screen & System Audio Recording permission for the app that runs it | The one thing synthetic audio cannot validate |
+| Set the Codex cloud environment's Setup script to `scripts/cloud-setup.sh` | Owner (ChatGPT web UI) | Cannot be configured from the repo |
+| Map-reduce for meetings longer than the local context window | Only if real meetings overflow | Deliberately deferred (ID-011) |
 
 ## Immediate (owner actions -- nothing left here is a code-readiness gap)
 
@@ -53,7 +65,7 @@
 ## Post-v2 Roadmap
 
 See `docs/STRATEGY_V2.md` Phase 3+ and `docs/PRODUCTIZATION.md` v3:
-- Local LLM via Ollama (OpenAI-compatible adapter) -- not started
+- Local LLM via Ollama -- **built** on this branch (`--analyzer ollama`), via Ollama's native API rather than the OpenAI-compatible adapter originally planned (ID-011 explains why)
 - Cross-meeting intelligence (vault-as-memory) -- not started; PRODUCTIZATION.md v3 scopes this as a Pro (paid) feature
 - Meeting type templates (standup, 1:1, planning) -- not started; also scoped as Pro
 - Calendar integration (iCal) -- not started; also scoped as Pro

@@ -6,12 +6,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
+	"github.com/0merUfuk/heimdall/internal/analyzer"
 	"github.com/0merUfuk/heimdall/internal/config"
 )
 
@@ -140,7 +143,10 @@ var configSetCmd = &cobra.Command{
 Examples:
   heimdall config set obsidian.vault_path ~/Documents/Obsidian/MyVault
   heimdall config set claude.model claude-sonnet-4-6
-  heimdall config set deepgram.language tr`,
+  heimdall config set deepgram.language tr
+  heimdall config set claude.analyzer ollama      # default backend: api, claude-code, ollama, codex
+  heimdall config set ollama.model qwen3:14b
+  heimdall config set codex.model gpt-5.6-luna`,
 	Args: cobra.ExactArgs(2),
 	RunE: runConfigSet,
 }
@@ -423,6 +429,16 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 }
 
 // getConfigValue returns the string value for a dotted config key path.
+// optionalConfigKeys are settable keys whose YAML field or section is
+// omitempty, so they are absent from a config that never set them.
+// TestOptionalConfigKeys_AreSettable keeps this in sync with setConfigValue.
+var optionalConfigKeys = []string{
+	"soniox.api_key", "soniox.model", "soniox.language",
+	"claude.analyzer",
+	"ollama.base_url", "ollama.model", "ollama.max_context",
+	"codex.model",
+}
+
 func getConfigValue(cfg *config.Config, key string) (string, error) {
 	// Marshal config to a generic map for dotted key access.
 	data, err := yaml.Marshal(cfg)
@@ -445,6 +461,11 @@ func getConfigValue(cfg *config.Config, key string) (string, error) {
 		}
 		val, exists := asMap[part]
 		if !exists {
+			// Optional sections are omitted from the YAML while unset
+			// (omitempty), so a valid key there is "not set", not unknown.
+			if slices.Contains(optionalConfigKeys, key) {
+				return "", nil
+			}
 			return "", fmt.Errorf("key %q not found", key)
 		}
 		current = val
@@ -472,6 +493,23 @@ func setConfigValue(cfg *config.Config, key, value string) error {
 		cfg.Claude.APIKey = value
 	case "claude.model":
 		cfg.Claude.Model = value
+	case "claude.analyzer":
+		if !analyzer.IsValidProvider(value) {
+			return fmt.Errorf("claude.analyzer: unknown value %q (use one of %s)", value, analyzer.ProviderList())
+		}
+		cfg.Claude.Analyzer = value
+	case "ollama.base_url":
+		cfg.Ollama.BaseURL = value
+	case "ollama.model":
+		cfg.Ollama.Model = value
+	case "ollama.max_context":
+		n, err := strconv.Atoi(value)
+		if err != nil || n < 0 {
+			return fmt.Errorf("ollama.max_context: %q is not a non-negative integer (tokens, e.g. 32768; 0 = default)", value)
+		}
+		cfg.Ollama.MaxContext = n
+	case "codex.model":
+		cfg.Codex.Model = value
 	case "obsidian.vault_path":
 		cfg.Obsidian.VaultPath = value
 	case "obsidian.meetings_folder":

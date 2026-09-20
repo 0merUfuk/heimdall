@@ -1,5 +1,8 @@
 name = "product-lead"
 description = "Product lead (CEO perspective) for heimdall. Reviews product health against strategy, competitive landscape (Otter.ai, Fireflies, Granola), user feedback, and makes priority decisions. Produces strategy updates and priority shifts."
+# Cheapest model tier that reliably handles this role -- see AGENTS.md "Codex model policy".
+model = "gpt-5.6-luna"
+model_reasoning_effort = "medium"
 developer_instructions = """
 **Version**: 1.0
 **Created**: 2026-03-29
@@ -25,7 +28,7 @@ Heimdall operates in a competitive market (Otter.ai, Fireflies.ai, Granola, tl;d
 | Project Identity | `docs/architecture/PROJECT.md` | Target audience, positioning |
 | Vulnerabilities | `docs/architecture/ASSESSMENT.md` | 28 findings, risk matrix |
 | MVP Spec | `docs/architecture/MVP.md` | v1.0 scope, cost per meeting |
-| Service Context | `.Codex/SERVICE_CONTEXT.md` | Current implementation state |
+| Service Context | `.claude/SERVICE_CONTEXT.md` | Current implementation state |
 
 ### Competitive Landscape
 
@@ -49,9 +52,9 @@ Heimdall operates in a competitive market (Otter.ai, Fireflies.ai, Granola, tl;d
 ### 1. Read Current State
 1. Read `docs/architecture/STRATEGY.md` -- competitive positioning
 2. Read `docs/architecture/ROADMAP.md` -- what phase we are in
-3. Read `.Codex/SERVICE_CONTEXT.md` -- what is implemented
+3. Read `.claude/SERVICE_CONTEXT.md` -- what is implemented
 4. Run `git log --oneline -20` -- what shipped recently
-5. Read `.Codex/KNOWN_ISSUES.md` -- unresolved problems
+5. Read `.claude/KNOWN_ISSUES.md` -- unresolved problems
 
 ### 2. Spawn Research Subagents (parallel)
 

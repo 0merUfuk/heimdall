@@ -665,3 +665,156 @@ func TestResolveEnvVars_PartialRef(t *testing.T) {
 		t.Errorf("VaultPath: got %q, want /vault/sk-key/data", cfg.Obsidian.VaultPath)
 	}
 }
+
+// TestValidate_KeylessAnalyzersSkipAPIKeyRequirement: ollama (on-device) and
+// codex (local codex login) never use claude.api_key either (ID-011).
+func TestValidate_KeylessAnalyzersSkipAPIKeyRequirement(t *testing.T) {
+	for _, a := range []string{"ollama", "codex"} {
+		t.Run(a, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.Obsidian.VaultPath = "/tmp/vault"
+			cfg.Claude.APIKey = ""
+			cfg.Claude.Analyzer = a
+			if err := cfg.Validate(); err != nil {
+				t.Errorf("Validate: expected no error with %s analyzer and empty api_key, got: %v", a, err)
+			}
+		})
+	}
+}
+
+// TestValidate_APIAnalyzerStillRequiresKey: the explicit "api" value keeps
+// requiring the key exactly like the unset default.
+func TestValidate_APIAnalyzerStillRequiresKey(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Obsidian.VaultPath = "/tmp/vault"
+	cfg.Claude.APIKey = ""
+	cfg.Claude.Analyzer = "api"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "claude.api_key") {
+		t.Errorf("Validate: expected claude.api_key error, got: %v", err)
+	}
+}
+
+func TestValidate_OllamaFields(t *testing.T) {
+	tests := []struct {
+		name       string
+		baseURL    string
+		maxContext int
+		wantErr    string
+	}{
+		{"zero value", "", 0, ""},
+		{"localhost", "http://localhost:11434", 32768, ""},
+		{"https remote", "https://ollama.example.com", 0, ""},
+		{"env ref", "${OLLAMA_HOST_URL}", 0, ""},
+		{"no scheme", "localhost:11434", 0, "ollama.base_url"},
+		{"bad scheme", "ftp://localhost:11434", 0, "ollama.base_url"},
+		{"context too small", "", 4096, "ollama.max_context"},
+		{"context too large", "", 1 << 21, "ollama.max_context"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.Obsidian.VaultPath = "/tmp/vault"
+			cfg.Ollama.BaseURL = tt.baseURL
+			cfg.Ollama.MaxContext = tt.maxContext
+			err := cfg.Validate()
+			if tt.wantErr == "" && err != nil {
+				t.Errorf("Validate: unexpected error: %v", err)
+			}
+			if tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)) {
+				t.Errorf("Validate: got %v, want error mentioning %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestResolveEnvVars_OllamaAndCodex(t *testing.T) {
+	t.Setenv("HEIMDALL_TEST_OLLAMA_URL", "http://127.0.0.1:11434")
+	t.Setenv("HEIMDALL_TEST_OLLAMA_MODEL", "qwen3:14b")
+	t.Setenv("HEIMDALL_TEST_CODEX_MODEL", "gpt-5.6-luna")
+	cfg := DefaultConfig()
+	cfg.Ollama.BaseURL = "${HEIMDALL_TEST_OLLAMA_URL}"
+	cfg.Ollama.Model = "${HEIMDALL_TEST_OLLAMA_MODEL}"
+	cfg.Codex.Model = "${HEIMDALL_TEST_CODEX_MODEL}"
+	t.Setenv("DEEPGRAM_API_KEY", "x")
+	t.Setenv("ANTHROPIC_API_KEY", "x")
+
+	if err := cfg.ResolveEnvVars(); err != nil {
+		t.Fatalf("ResolveEnvVars: %v", err)
+	}
+	if cfg.Ollama.BaseURL != "http://127.0.0.1:11434" || cfg.Ollama.Model != "qwen3:14b" || cfg.Codex.Model != "gpt-5.6-luna" {
+		t.Errorf("not resolved: ollama=%+v codex=%+v", cfg.Ollama, cfg.Codex)
+	}
+}
+
+// TestSave_OmitsUnusedBackendSections: users who never opt in to ollama or
+// codex must not see new sections appear in their config file on save.
+func TestSave_OmitsUnusedBackendSections(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := DefaultConfig().Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, section := range []string{"ollama:", "codex:"} {
+		if strings.Contains(string(data), section) {
+			t.Errorf("default config unexpectedly contains %q:\n%s", section, data)
+		}
+	}
+}
+
+func TestLoad_OllamaAndCodexSections(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	yaml := "claude:\n  analyzer: ollama\nollama:\n  base_url: http://localhost:11434\n  model: qwen2.5:7b\n  max_context: 16384\ncodex:\n  model: gpt-5.6-terra\n"
+	if err := os.WriteFile(path, []byte(yaml), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Claude.Analyzer != "ollama" || cfg.Ollama.Model != "qwen2.5:7b" || cfg.Ollama.MaxContext != 16384 || cfg.Codex.Model != "gpt-5.6-terra" {
+		t.Errorf("parsed wrong: claude=%+v ollama=%+v codex=%+v", cfg.Claude, cfg.Ollama, cfg.Codex)
+	}
+	// Defaults for the untouched sections are preserved.
+	if cfg.Claude.Model != "claude-haiku-4-5" {
+		t.Errorf("claude.model default lost: %q", cfg.Claude.Model)
+	}
+}
+
+// TestResolveEnvVars_ContinuesPastMissingVariable is the regression test for
+// the fully local path: with no DEEPGRAM_API_KEY (deepgram.api_key is the
+// first field resolved), later references such as ollama.base_url must still
+// resolve, and the error must name every unresolved field.
+func TestResolveEnvVars_ContinuesPastMissingVariable(t *testing.T) {
+	// os.Unsetenv has no automatic restore (unlike t.Setenv), and leaving
+	// these unset would make every later test in the package depend on the
+	// order it ran in.
+	for _, key := range []string{"DEEPGRAM_API_KEY", "ANTHROPIC_API_KEY"} {
+		if old, ok := os.LookupEnv(key); ok {
+			t.Cleanup(func() { os.Setenv(key, old) })
+		}
+		os.Unsetenv(key)
+	}
+	t.Setenv("HEIMDALL_TEST_OLLAMA_URL", "http://127.0.0.1:11434")
+
+	cfg := DefaultConfig()
+	cfg.Ollama.BaseURL = "${HEIMDALL_TEST_OLLAMA_URL}"
+
+	err := cfg.ResolveEnvVars()
+	if err == nil {
+		t.Fatal("expected an error for the unset keys")
+	}
+	for _, want := range []string{"DEEPGRAM_API_KEY", "ANTHROPIC_API_KEY"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error should list %s, got: %v", want, err)
+		}
+	}
+	if cfg.Ollama.BaseURL != "http://127.0.0.1:11434" {
+		t.Errorf("ollama.base_url: got %q, want it resolved despite earlier failures", cfg.Ollama.BaseURL)
+	}
+	if cfg.Deepgram.APIKey != "${DEEPGRAM_API_KEY}" {
+		t.Errorf("unresolvable field should keep its reference, got %q", cfg.Deepgram.APIKey)
+	}
+}

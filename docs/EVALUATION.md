@@ -56,6 +56,79 @@ Exit code is non-zero if any fixture fails a deterministic check. `--judge` scor
 - **Judge is opt-in, not wired into CI by default.** The public GitHub Actions workflow (`.github/workflows/ci.yml`) has no secrets configured, so a judge-gated CI run isn't possible without asking the maintainer to provision an API key as a repo secret -- a deliberate, human decision, not something to default into a public workflow silently. The deterministic layer needs no credentials at all when run with `--analyzer claude-code` and a local Claude Code login, or requires only the same `ANTHROPIC_API_KEY` a maintainer already needs to use heimdall itself.
 - **Not a Python eval framework.** heimdall is a lean, 5-dependency Go binary by design (see `docs/GRILL_REPORT.md`'s "Meta-Engineering ROI" finding on process proportionality). Reaching for a separate Python eval stack (promptfoo, deepeval, ragas, ...) would add a second language, a second dependency tree, and a second CI runner just to grade output this package's own `heimdall` binary already knows how to parse. `internal/eval` is ~600 lines of plain Go, reuses the exact `analyzer.Analyzer` interface production code runs through, and ships in the same binary.
 
+## Measured results: local models (2026-09-19)
+
+The first runs of this suite against a real model. Machine: Apple M4 Pro, 24 GB unified memory, Ollama 0.20.2, `--analyzer ollama`, temperature 0. Every configuration was run 3 times; at temperature 0 the three reports were byte-identical, so the pass rates below are deterministic, not averages.
+
+### Golden fixtures (`heimdall eval --analyzer ollama`)
+
+| Model | Fixtures passed | Valid JSON on first attempt | Warm latency per fixture | Failing fixtures |
+|---|---|---|---|---|
+| **`qwen3:14b`** (default) | **5/7** | 21/21 | 6-27 s | `tr-standup`: owners written as "Speaker N" instead of the required "Unknown Speaker N". `tr-en-code-switch` (`--language multi`): Turkish meeting summarized in English |
+| `qwen2.5:7b` (rejected) | 0/7 | 21/21 | -- | "Speaker N" naming on every fixture, 0 of 5 decisions on `en-dense-coverage`, English summaries of Turkish meetings (measured before the language-name prompt fix) |
+| **`claude-haiku-4-5`** via `--analyzer api` (cloud baseline) | **6/7** (3 runs; not deterministic -- default temperature) | 21/21 | 1.5-3.5 s | `en-dense-coverage`: writes "Team (decision made last week)" as a decision owner, flagged by the name-traceability check |
+| `claude-haiku-4-5` via `--analyzer claude-code` | 7/7 (1 run, through the real `claude` binary) | 7/7 | -- | -- |
+| `gpt-5.6-luna` (low effort) via `--analyzer codex` | 6/7, 6/7, 5/7 | 21/21 | 5.9-16.4 s | name traceability only: joint owners ("Dana and Lena" -- both real names, arguably a false positive of the check), "Team", "Speaker 0 ve Speaker 1" |
+
+Codex carries a fixed ~16.5K input tokens per call (its own built-in agent prompt, plus the user's global `~/.codex/AGENTS.md` -- see `.claude/KNOWN_ISSUES.md`), against ~0.6-0.8K for the same fixture on the Anthropic API.
+
+Before the `multi` language instruction was added, Haiku scored 6/7, 5/7, 5/7 and failed `tr-en-code-switch` in every run -- the same fixture `qwen3:14b` fails. The instruction fixed it for Haiku (Turkish summaries 0/3 -> 3/3 in a direct probe, and the fixture now passes in all 3 eval runs) but not for `qwen3:14b`.
+
+- Schema-constrained decoding (Ollama `format`) made JSON validity a non-issue: 42/42 valid on the first attempt across both models, no retries, no fallback notes.
+- Naming the output language in the prompt ("Turkish (tr)" instead of "tr") moved `tr-standup`'s summary from English to Turkish on `qwen3:14b`. Two instructions for `multi` changed nothing on `qwen3:14b`; the first was kept after it fixed the same fixture for Haiku (below).
+- `qwen3:14b` passes everything in English: coverage (including 5 decisions + 5 action items on `en-dense-coverage`), both anti-hallucination fixtures, prompt-injection resistance, and meeting type.
+
+### Long meetings (single pass through `heimdall analyze`)
+
+Synthetic transcripts at realistic speech density (150 words/min in English), with action items and a decision planted at ~3%, 50%, and 97% of the meeting. Recall is scored only on the analysis part of the note, not the embedded raw transcript.
+
+| Transcript | Input tokens | Context | Latency | Planted items recovered |
+|---|---|---|---|---|
+| English, 60 min (9,085 words) | 15,458 | 32K | 2 m 14 s | 3/4 -- **missed the mid-meeting action item** |
+| Turkish, 60 min (`--language tr`) | 21,946 | 32K | 3 m 40 s | 4/4, summary in Turkish |
+| English, 120 min | ~45,000 (estimated) | -- | refused, nothing sent | -- (exceeds the 32K default and the model's 40,960 maximum) |
+| *Baseline: `claude-haiku-4-5`, English 60 min* | 15,686 | -- | 7 s | 4/4 |
+| *Baseline: `claude-haiku-4-5`, Turkish 60 min* | 26,851 | -- | 11 s | 4/4, summary in Turkish |
+
+- Action-item recall on 60-minute meetings: **5/6 (83%)**, decisions 2/2 -- against 6/6 for the Haiku baseline, so local recall relative to the cloud baseline is also 83%, one item short of the 85% bar the local-analyzer brief set (on a sample of six items). The miss is the classic "lost in the middle" pattern of long-context models; it is the strongest argument for map-reduce if real meetings show the same.
+- `qwen3:14b` with a 32K context occupies 13.8 GiB of unified memory while loaded.
+- Two-hour meetings do not fit `qwen3:14b` at all. The analyzer refuses them up front with the exact token counts instead of silently truncating (ID-011); use a cloud backend for those until map-reduce exists.
+
+### Offline end to end
+
+`say` + `ffmpeg` produced a real two-speaker stereo WAV; `heimdall transcribe` (whisper.cpp, base model) then `heimdall analyze` (`claude.analyzer: ollama` from config) ran inside a macOS sandbox profile that denies every non-loopback network connection, with no API keys in the environment. Result: 7 correctly speaker-separated segments, the decision and the action item (owner + deadline) extracted correctly, note written to the vault, recovery transcript removed after success.
+
+### Summary against the cloud baseline
+
+On the golden fixtures the local default is roughly on par with Haiku (5/7 deterministic vs 6/7). Its real gaps are Turkish instruction-following (the two failing fixtures) and long-context recall in the middle of a meeting; Haiku is also 20-30x faster. Choose the local backend for privacy, not for quality or speed.
+
+### Real meeting (2026-09-20)
+
+The first live run: a 57-minute Turkish technical meeting captured with `record --transcriber whisper`, transcribed locally, analyzed with `--analyzer codex` (`gpt-5.6-luna`). Content stays private; only the measurements are recorded here.
+
+All four model/language combinations were run against that same recording with the same analyzer (one run per cell; Codex is not deterministic, so a single-item difference is noise):
+
+| Whisper model | Language | Decisions | Action items | Segments | Transcription time |
+|---|---|---|---|---|---|
+| `small` | auto | 0 | 0 | 224 (204 music) | 51 s |
+| `small` | `tr` | 0 | 0 | 224 | 55 s |
+| `medium` | auto | 0 | 2 | 299 | 145 s |
+| `medium` | `tr` | **2** | **4**, with owners (one honestly marked uncertain) | 312 | 178 s |
+
+Analysis cost was flat across cells (21-23K input tokens, 12-18 s). The empty note on the first pass was a transcription failure, not an analyzer failure: `small` mangled the domain vocabulary ("YAML" -> "yamul dosyeti") in both language modes, so there was nothing to extract. Model size is the dominant variable; an explicit `--language` adds on top of the bigger model rather than replacing it. This is why the defaults moved to `small` and `medium` plus an explicit language is documented for Turkish or jargon-heavy meetings (`.claude/DECISIONS.md` ID-016).
+
+Two more findings from the same run, both invisible to the synthetic suites:
+- The Swift helper never captured system audio on a 44.1kHz mono tap (fixed, ID-016). The 15-second capture preflight caught it *before* the meeting: `system(L) peak=0`, and `9717` after the fix.
+- Channel diarization collapsed (221 of 224 segments on one speaker) because the microphone heard the meeting audio at the same level as the system channel. The channels were verified genuinely independent (no correlation at any lag); the limit is whisper.cpp's energy-based `--diarize`.
+
+### Not yet measured
+
+- **Real meetings**: one 57-minute meeting is measured above; everything else on this page is synthetic. A broader real-meeting sample (other languages, speaker counts, audio setups) is still unmeasured.
+
+A possible check refinement, deliberately not made mid-comparison: `checkNoHallucinatedNames` treats a joint owner string ("Dana and Lena") as one name, so it fails even when every person in it is in the transcript.
+
 ## Known limitation
+
+> Superseded: see "Measured results" above for the first real runs, including the cloud baseline.
 
 This was built in a sandbox with no logged-in `claude` CLI and, at authoring time, no `ANTHROPIC_API_KEY` configured -- so while every check function, the runner's orchestration, and the judge's HTTP contract are unit-tested against scripted/mock responses (`internal/eval/*_test.go`), the suite has not yet been run end-to-end against a real model. Run `heimdall eval` (and `heimdall eval --judge`) once real credentials are available, and treat the first real run's pass/fail as the actual quality baseline -- not this document's design intent.
