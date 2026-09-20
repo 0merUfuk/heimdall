@@ -26,7 +26,7 @@ Built and verified locally; see `.claude/SERVICE_CONTEXT.md` and `.claude/DECISI
 | Task | Owner | Why |
 |------|-------|-----|
 | Review + merge the branch | Owner | Nothing merged yet |
-| `heimdall eval --analyzer codex` once the Codex usage limit resets | Owner / next session | Codex backend verified flag-by-flag but never end to end |
+| ~~`heimdall eval --analyzer codex`~~ | Done 2026-09-20 | 6/7, 6/7, 5/7 live; see `docs/EVALUATION.md` |
 | Live meeting test of `record --transcriber whisper --analyzer ollama` | Owner present in a real meeting; needs macOS Microphone + Screen & System Audio Recording permission for the app that runs it | The one thing synthetic audio cannot validate |
 | Set the Codex cloud environment's Setup script to `scripts/cloud-setup.sh` | Owner (ChatGPT web UI) | Cannot be configured from the repo |
 | Map-reduce for meetings longer than the local context window | Only if real meetings overflow | Deliberately deferred (ID-011) |

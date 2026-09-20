@@ -49,6 +49,9 @@ heimdall model download small       # ~465 MB; base is faster but weaker on Turk
 ollama serve &                      # or launch the Ollama app
 ollama pull qwen3:14b               # ~9.3 GB
 heimdall config set claude.analyzer ollama
+heimdall config set ollama.base_url http://localhost:11434   # pin it: a previously
+                                                             # configured remote host
+                                                             # would receive transcripts
 heimdall config set obsidian.vault_path ~/path/to/vault
 ```
 
@@ -102,7 +105,7 @@ There is **no live transcript** in this mode -- the terminal says so, and that i
 ### Acceptance checklist
 
 - [ ] Terminal shows `STT: whisper (on this machine, after you stop)` and the offline-capture notice
-- [ ] Ctrl+C is followed by `Transcribing ... locally via Whisper`, then `Analyzing via Ollama ... (on-device ...)`
+- [ ] Ctrl+C is followed by `Transcribing ... locally via Whisper`, then `Analyzing via Ollama at http://localhost:11434 (on-device -- the transcript does not leave this machine)`. If that label says **REMOTE host**, stop: `ollama.base_url` points somewhere else and the transcript would be sent there
 - [ ] `Meeting note saved: <vault>/meetings/<date>/<title>.md`
 - [ ] The note's **Action Items** table contains the task, owner, and deadline that were actually spoken
 - [ ] **Key Decisions** contains the decision that was actually made, attributed to whoever made it

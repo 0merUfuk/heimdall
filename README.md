@@ -352,7 +352,7 @@ By default heimdall sends meeting data to two external services. With `heimdall 
 | Meeting transcript (`--analyzer claude-code` / `codex`) | Anthropic / OpenAI, under your own Claude Code / Codex account | Per your plan's terms | Per your plan's settings |
 | Meeting transcript (`--analyzer ollama`) | **Nowhere** -- analyzed on this machine | N/A | N/A |
 | Meeting notes | Your local Obsidian vault | You control | N/A |
-| Recovery files | `~/.heimdall/recovery/` (local) | Until cleanup | N/A |
+| Recovery files | `~/.heimdall/recovery/` (local) | Deleted after a successful meeting note; **kept** when analysis fails so you can retry -- delete them yourself if you will not | N/A |
 | Raw audio recording (opt-in, `--save-audio`) | `~/.heimdall/recordings/` (local) | Until you delete it | N/A |
 
 heimdall does not store audio or transcripts on any server it controls. API keys are stored as environment variable references, never in plaintext config files.

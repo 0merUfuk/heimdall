@@ -788,8 +788,15 @@ func TestLoad_OllamaAndCodexSections(t *testing.T) {
 // first field resolved), later references such as ollama.base_url must still
 // resolve, and the error must name every unresolved field.
 func TestResolveEnvVars_ContinuesPastMissingVariable(t *testing.T) {
-	os.Unsetenv("DEEPGRAM_API_KEY")
-	os.Unsetenv("ANTHROPIC_API_KEY")
+	// os.Unsetenv has no automatic restore (unlike t.Setenv), and leaving
+	// these unset would make every later test in the package depend on the
+	// order it ran in.
+	for _, key := range []string{"DEEPGRAM_API_KEY", "ANTHROPIC_API_KEY"} {
+		if old, ok := os.LookupEnv(key); ok {
+			t.Cleanup(func() { os.Setenv(key, old) })
+		}
+		os.Unsetenv(key)
+	}
 	t.Setenv("HEIMDALL_TEST_OLLAMA_URL", "http://127.0.0.1:11434")
 
 	cfg := DefaultConfig()
