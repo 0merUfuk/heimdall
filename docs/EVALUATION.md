@@ -106,15 +106,16 @@ On the golden fixtures the local default is roughly on par with Haiku (5/7 deter
 
 The first live run: a 57-minute Turkish technical meeting captured with `record --transcriber whisper`, transcribed locally, analyzed with `--analyzer codex` (`gpt-5.6-luna`). Content stays private; only the measurements are recorded here.
 
-| | `small`, language auto | `medium`, `--language tr` |
-|---|---|---|
-| Transcription time (57 min audio) | 51 s | 178 s |
-| Segments | 224 (204 of them music) | 312 |
-| Decisions extracted | **0** | **2** |
-| Action items extracted | **0** | **4**, with owners (one honestly marked uncertain) |
-| Analysis (Codex) | 21,126 in / 336 out tokens, 12 s | 22,994 in / 676 out tokens, 18 s |
+All four model/language combinations were run against that same recording with the same analyzer (one run per cell; Codex is not deterministic, so a single-item difference is noise):
 
-The empty note on the first pass was a transcription failure, not an analyzer failure: `small` mangled the domain vocabulary ("YAML" -> "yamul dosyeti") badly enough that there was nothing to extract. Same audio, same analyzer, bigger Whisper model -> a complete note. This is why the defaults moved to `small` and `medium` is documented for Turkish or jargon-heavy meetings (`.claude/DECISIONS.md` ID-016).
+| Whisper model | Language | Decisions | Action items | Segments | Transcription time |
+|---|---|---|---|---|---|
+| `small` | auto | 0 | 0 | 224 (204 music) | 51 s |
+| `small` | `tr` | 0 | 0 | 224 | 55 s |
+| `medium` | auto | 0 | 2 | 299 | 145 s |
+| `medium` | `tr` | **2** | **4**, with owners (one honestly marked uncertain) | 312 | 178 s |
+
+Analysis cost was flat across cells (21-23K input tokens, 12-18 s). The empty note on the first pass was a transcription failure, not an analyzer failure: `small` mangled the domain vocabulary ("YAML" -> "yamul dosyeti") in both language modes, so there was nothing to extract. Model size is the dominant variable; an explicit `--language` adds on top of the bigger model rather than replacing it. This is why the defaults moved to `small` and `medium` plus an explicit language is documented for Turkish or jargon-heavy meetings (`.claude/DECISIONS.md` ID-016).
 
 Two more findings from the same run, both invisible to the synthetic suites:
 - The Swift helper never captured system audio on a 44.1kHz mono tap (fixed, ID-016). The 15-second capture preflight caught it *before* the meeting: `system(L) peak=0`, and `9717` after the fix.
@@ -122,7 +123,7 @@ Two more findings from the same run, both invisible to the synthetic suites:
 
 ### Not yet measured
 
-- **Real meetings**: all numbers above are from synthetic transcripts.
+- **Real meetings**: one 57-minute meeting is measured above; everything else on this page is synthetic. A broader real-meeting sample (other languages, speaker counts, audio setups) is still unmeasured.
 
 A possible check refinement, deliberately not made mid-comparison: `checkNoHallucinatedNames` treats a joint owner string ("Dana and Lena") as one name, so it fails even when every person in it is in the transcript.
 

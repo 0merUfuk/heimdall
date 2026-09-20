@@ -108,7 +108,8 @@ If analysis fails after retries, heimdall writes the raw transcript as the note,
 #### Fully offline meetings
 
 ```bash
-brew install whisper-cpp && heimdall model download base   # local transcription
+brew install whisper-cpp && heimdall model download small   # local transcription (record's default)
+# heimdall model download medium                           # better for Turkish / jargon-heavy meetings
 brew install ollama && ollama serve && ollama pull qwen3:14b  # local analysis
 heimdall record --transcriber whisper --analyzer ollama --title "Design review"
 ```

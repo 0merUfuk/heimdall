@@ -300,10 +300,13 @@ private func runAudioCapture() -> Int32 {
     // callback instead.
     let tapFormat = inputFormat
 
+    // Compare the whole format, not just rate and channel count: a tap that
+    // matches those but delivers interleaved or non-Float32 samples would
+    // bypass the converter and reach writeBufferToStdout, which assumes
+    // deinterleaved Float32 (floatChannelData is nil otherwise, and
+    // interleaved data needs the buffer's stride).
     var converter: AVAudioConverter?
-    if inputFormat.sampleRate != desiredFormat.sampleRate
-        || inputFormat.channelCount != desiredFormat.channelCount
-    {
+    if !inputFormat.isEqual(desiredFormat) {
         converter = AVAudioConverter(from: inputFormat, to: desiredFormat)
         if converter == nil {
             logError(
@@ -313,7 +316,7 @@ private func runAudioCapture() -> Int32 {
             return ExitCode.fatalError.rawValue
         }
         logError(
-            "converting \(inputFormat.sampleRate)Hz/\(inputFormat.channelCount)ch -> \(Int(desiredFormat.sampleRate))Hz/\(desiredFormat.channelCount)ch"
+            "converting \(inputFormat.sampleRate)Hz/\(inputFormat.channelCount)ch/\(inputFormat.isInterleaved ? "interleaved" : "deinterleaved") -> \(Int(desiredFormat.sampleRate))Hz/\(desiredFormat.channelCount)ch Float32"
         )
     }
 

@@ -298,14 +298,16 @@ Against the local-analyzer brief's bars: JSON validity 100% (bar >= 98%) and the
 
 **Finding 1 -- system audio was never captured on hardware whose tap is not 48kHz stereo (pre-existing since v0.1.0).** `audio-helper` read the tap's real format (44.1kHz mono on a USB headset output), logged "mono tap detected", and then installed the tap with a hardcoded 48kHz stereo format anyway, trusting Core Audio to convert. AVAudioEngine instead threw `Failed to create tap due to format mismatch`; the helper crashed, the Go watchdog restarted it three times and gave up. The status line still read `Audio: system on`, so a meeting would have recorded **only the local microphone** -- every remote participant silently missing. Fixed by installing the tap with the node's own format and converting to the mixer's contract (48kHz stereo Float32) with an `AVAudioConverter`. Preflight after the fix: `system(L) peak 0 -> 9717`.
 
-**Finding 2 -- transcription quality gates analysis quality.** The same 57-minute Turkish technical meeting, same audio, same Codex analyzer:
+**Finding 2 -- transcription quality gates analysis quality.** The same 57-minute Turkish technical meeting, same audio, same Codex analyzer, all four combinations measured (one run per cell; Codex is not deterministic, so treat single-item differences as noise):
 
-| Whisper model | Decisions | Action items | Transcription time |
-|---|---|---|---|
-| `small` (auto language) | 0 | 0 | 51 s |
-| `medium` + `--language tr` | 2 | 4 (with owners) | 178 s |
+| Whisper model | Language | Decisions | Action items | Segments | Transcription time |
+|---|---|---|---|---|---|
+| `small` | auto | 0 | 0 | 224 | 51 s |
+| `small` | `tr` | 0 | 0 | 224 | 55 s |
+| `medium` | auto | 0 | 2 | 299 | 145 s |
+| `medium` | `tr` | 2 | 4 (with owners) | 312 | 178 s |
 
-`small` mangled the domain vocabulary badly enough ("YAML" -> "yamul dosyeti") that there was nothing extractable; the empty note was not an analyzer failure. `record`'s and `transcribe`'s default moved from `base` to `small`, and `medium` is documented for Turkish or jargon-heavy meetings.
+Model size is the dominant variable: `small` yields nothing extractable in either language mode, because it mangles the domain vocabulary ("YAML" -> "yamul dosyeti"). An explicit `--language` adds on top of the bigger model rather than substituting for it. The empty note was a transcription failure, not an analyzer failure. `record`'s and `transcribe`'s default moved from `base` to `small`, and `medium` + an explicit language is documented for Turkish or jargon-heavy meetings.
 
 **Finding 3 -- channel diarization collapses when the microphone hears the system output.** Both channels were verified genuinely independent (raw samples differ; no correlation at any lag), but their levels were nearly identical because the mic picked up the meeting audio and music. whisper.cpp's `--diarize` splits by relative per-channel energy, so 221 of 224 segments landed on one speaker. Headphones that do not leak are the practical fix; per-individual diarization needs a cloud transcriber (ID-008 already documents the coarseness).
 
