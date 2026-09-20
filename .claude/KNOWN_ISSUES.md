@@ -88,7 +88,7 @@ These are documented trade-offs, not bugs:
 | Deepgram Turkish code-switching not fully supported | `--keywords` flows through to Deepgram's keyword-boost parameter, improving English-tech-term recognition in Turkish meetings, but doesn't fully resolve TR+EN code-switching |
 | LLM may hallucinate action items | Anti-hallucination prompt engineering (V-013); now measurable via `heimdall eval`'s anti-hallucination checks (PR #31) |
 | Transcript content as prompt injection vector | Delimiter wrapping + sanitized --participants/--keywords (V-014); now measurable via `heimdall eval`'s injection-resistance check (PR #31) |
-| `ClaudeCodeAnalyzer` (PR #30) has never been run against a real logged-in `claude` CLI | Build sandbox had none. Unit-tested via an injectable subprocess runner against the real CLI's empirically-captured JSON contract; a live smoke test is an owner action. |
+| `ClaudeCodeAnalyzer` (PR #30) had never been run against a real `claude` CLI (superseded 2026-09-19: now 7/7 on the eval through the real binary, ID-015; an OAuth/subscription login is still unexercised) | Build sandbox had none. Unit-tested via an injectable subprocess runner against the real CLI's empirically-captured JSON contract; a live smoke test is an owner action. |
 
 ---
 

@@ -126,7 +126,7 @@ Chose plain Go over a dedicated Python eval framework (promptfoo/deepeval/ragas/
 **Consequences**:
 - `heimdall eval` / `make eval` exist as a real regression harness: a maintainer can run it before tagging a release and get an immediate pass/fail plus per-check detail.
 - The judge layer is deliberately NOT wired into the public CI workflow (`.github/workflows/ci.yml` has no secrets configured) -- provisioning `ANTHROPIC_API_KEY` as a repo secret for CI-gated judging is a decision left to the maintainer, not defaulted silently into a public workflow.
-- Not yet covered: the suite has never been run against a real model (no live credentials in the build sandbox) -- see `docs/EVALUATION.md`'s "Known limitation" section. The first real `heimdall eval` run is the actual quality baseline, not this entry's design intent.
+- First real runs landed 2026-09-19/20 against four backends (local `qwen3:14b`, Anthropic API, Claude Code, Codex) -- numbers in `docs/EVALUATION.md`'s "Measured results". The suite found real defects in both directions: it caught the local model's Turkish failures, and its name-traceability check flags joint owners ("Dana and Lena") as untraceable, a refinement noted there. The first real `heimdall eval` run is the actual quality baseline, not this entry's design intent.
 
 ### ID-007: Raw-audio recording as a session-level tap, not a Transcriber
 

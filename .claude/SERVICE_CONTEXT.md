@@ -27,7 +27,7 @@
 Not merged yet. Four analysis backends instead of two, a Codex developer setup, and cloud-container support. Decisions and measured evidence: `.claude/DECISIONS.md` ID-011 (Ollama), ID-012 (Codex), ID-013 (cloud).
 
 - `--analyzer ollama` (`internal/analyzer/ollama.go`) -- on-device analysis via Ollama's native API, context sized per transcript, over-long transcripts refused not truncated. Default `qwen3:14b`. `heimdall transcribe` + `analyze --analyzer ollama` is offline end to end.
-- `--analyzer codex` (`internal/analyzer/codex.go`) -- `codex exec`, isolated, default `gpt-5.6-luna` at low effort. **Not yet verified against a live model** (Codex usage limit hit during the session).
+- `--analyzer codex` (`internal/analyzer/codex.go`) -- `codex exec`, isolated, default `gpt-5.6-luna` at low effort. Verified live: 6/7, 6/7, 5/7 on the eval, 21/21 valid JSON (`docs/EVALUATION.md`).
 - `record --transcriber whisper` -- fully offline meeting capture: audio saved (checkpointed every 30 s), transcribed by whisper.cpp after the stop (ID-014).
 - `--analyzer claude-code` fixed for subscription logins (`--bare` removed, isolation rebuilt and verified, ID-015); 7/7 on the eval through the real binary.
 - Cloud baseline measured: Haiku 6/7 (api) vs `qwen3:14b` 5/7 -- `docs/EVALUATION.md`.
