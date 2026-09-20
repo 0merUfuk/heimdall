@@ -13,6 +13,8 @@ Heimdall is a CLI-first meeting companion that captures audio, transcribes with 
 
 The pipeline has 6 stages. The LLM appears in exactly ONE stage (Stage 5), after the meeting ends. Everything before that is system APIs and specialized speech ML.
 
+> **Providers shipped since this document was written** (the stage boundaries are unchanged): Stage 3 is Deepgram (default), Soniox, or capture-only with local whisper.cpp after the meeting (`--transcriber whisper`, `.claude/DECISIONS.md` ID-014); Stage 5 is the Anthropic API (default), a local Claude Code login, an on-device Ollama model (`--analyzer ollama`, ID-011), or a local Codex login (ID-012). The diagrams below show the original Deepgram + Claude API path.
+
 ---
 
 ## Full Pipeline Diagram

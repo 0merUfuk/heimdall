@@ -160,9 +160,18 @@ install_go() {
     # a tampered tarball would be code execution in the container. The
     # preferred path above (the Go module proxy) is already verified against
     # Go's checksum database; this fallback needs its own check.
-    local got
-    got="$(shasum -a 256 "$tgz" 2>/dev/null | awk '{print $1}')"
-    [[ -z "$got" ]] && got="$(sha256sum "$tgz" | awk '{print $1}')"
+    # Linux images ship sha256sum (coreutils); macOS ships shasum. Pick
+    # whichever exists -- a missing tool must not look like a hash mismatch.
+    local got=""
+    if command -v sha256sum >/dev/null 2>&1; then
+      got="$(sha256sum "$tgz" | awk '{print $1}')"
+    elif command -v shasum >/dev/null 2>&1; then
+      got="$(shasum -a 256 "$tgz" | awk '{print $1}')"
+    else
+      rm -f "$tgz"
+      log "no sha256sum/shasum available to verify $url; refusing to install"
+      exit 1
+    fi
     if [[ "$got" != "$want" ]]; then
       rm -f "$tgz"
       log "SHA-256 mismatch for $url"
