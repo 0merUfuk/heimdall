@@ -14,17 +14,27 @@ import (
 
 // Config holds all heimdall configuration. Loaded from ~/.heimdall/config.yaml.
 type Config struct {
-	Deepgram DeepgramConfig     `yaml:"deepgram"`
-	Soniox   SonioxConfig       `yaml:"soniox,omitempty"`
-	Claude   ClaudeConfig       `yaml:"claude"`
-	Ollama   OllamaConfig       `yaml:"ollama,omitempty"`
-	Codex    CodexConfig        `yaml:"codex,omitempty"`
-	Obsidian ObsidianConfig     `yaml:"obsidian"`
-	Audio    AudioConfig        `yaml:"audio"`
-	Output   OutputConfig       `yaml:"output"`
-	Consent  ConsentConfig      `yaml:"consent,omitempty"`
-	Keywords []string           `yaml:"keywords,omitempty"`
-	Profiles map[string]Profile `yaml:"profiles,omitempty"`
+	Transcriber TranscriberConfig  `yaml:"transcriber,omitempty"`
+	Deepgram    DeepgramConfig     `yaml:"deepgram"`
+	Soniox      SonioxConfig       `yaml:"soniox,omitempty"`
+	Claude      ClaudeConfig       `yaml:"claude"`
+	Ollama      OllamaConfig       `yaml:"ollama,omitempty"`
+	Codex       CodexConfig        `yaml:"codex,omitempty"`
+	Obsidian    ObsidianConfig     `yaml:"obsidian"`
+	Audio       AudioConfig        `yaml:"audio"`
+	Output      OutputConfig       `yaml:"output"`
+	Consent     ConsentConfig      `yaml:"consent,omitempty"`
+	Keywords    []string           `yaml:"keywords,omitempty"`
+	Profiles    map[string]Profile `yaml:"profiles,omitempty"`
+}
+
+// TranscriberConfig selects the speech-to-text provider for `record`.
+type TranscriberConfig struct {
+	// Provider is "soniox", "deepgram", or "whisper" (offline capture,
+	// transcribed locally after the meeting). Empty means auto: Soniox when
+	// SONIOX_API_KEY is set, otherwise Deepgram when DEEPGRAM_API_KEY is
+	// set. The --transcriber flag overrides this.
+	Provider string `yaml:"provider,omitempty"`
 }
 
 // DeepgramConfig holds Deepgram API configuration.
@@ -48,7 +58,7 @@ type SonioxConfig struct {
 	// APIKey is the Soniox API key or a ${VAR} reference to one.
 	APIKey string `yaml:"api_key,omitempty"`
 
-	// Model is the Soniox real-time model name. Defaults to "stt-rt-v4"
+	// Model is the Soniox real-time model name. Defaults to "stt-rt-v5"
 	// when empty. The older "stt-rt-preview" alias is superseded per the
 	// Soniox docs and should not be used.
 	Model string `yaml:"model,omitempty"`
@@ -256,11 +266,24 @@ func (c *Config) Validate() error {
 	// are happy on the Deepgram default path).
 	if c.Soniox.APIKey != "" {
 		validSonioxModels := map[string]bool{
-			"stt-rt-v4": true,
-			"stt-rt-v3": true, // auto-routes to v4 per Soniox docs
+			"stt-rt-v5": true, // current real-time model
+			"stt-rt-v4": true, // alias for v5 per Soniox docs
+			// stt-rt-v3 was retired by Soniox on 2026-02-28.
 		}
 		if c.Soniox.Model != "" && !isEnvVarRef(c.Soniox.Model) && !validSonioxModels[c.Soniox.Model] {
-			return fmt.Errorf("soniox.model: unknown model %q", c.Soniox.Model)
+			return fmt.Errorf("soniox.model: unknown or retired model %q (use \"stt-rt-v5\")", c.Soniox.Model)
+		}
+	}
+
+	// Transcriber provider. The names are duplicated from
+	// internal/transcriber.Provider* (config cannot import that package);
+	// cmd/heimdall's TestTranscriberProviderNames_MatchConfig fails if the
+	// two lists drift apart.
+	switch c.Transcriber.Provider {
+	case "", "soniox", "deepgram", "whisper":
+	default:
+		if !isEnvVarRef(c.Transcriber.Provider) {
+			return fmt.Errorf("transcriber.provider: unknown value %q (use \"soniox\", \"deepgram\", or \"whisper\")", c.Transcriber.Provider)
 		}
 	}
 

@@ -144,6 +144,7 @@ Examples:
   heimdall config set obsidian.vault_path ~/Documents/Obsidian/MyVault
   heimdall config set claude.model claude-sonnet-4-6
   heimdall config set deepgram.language tr
+  heimdall config set transcriber.provider soniox # soniox, deepgram, or whisper (offline); empty = auto
   heimdall config set claude.analyzer ollama      # default backend: api, claude-code, ollama, codex
   heimdall config set ollama.model qwen3:14b
   heimdall config set codex.model gpt-5.6-luna`,
@@ -433,6 +434,7 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 // omitempty, so they are absent from a config that never set them.
 // TestOptionalConfigKeys_AreSettable keeps this in sync with setConfigValue.
 var optionalConfigKeys = []string{
+	"transcriber.provider",
 	"soniox.api_key", "soniox.model", "soniox.language",
 	"claude.analyzer",
 	"ollama.base_url", "ollama.model", "ollama.max_context",
@@ -483,6 +485,11 @@ func setConfigValue(cfg *config.Config, key, value string) error {
 		cfg.Deepgram.Model = value
 	case "deepgram.language":
 		cfg.Deepgram.Language = value
+	case "transcriber.provider":
+		if !validTranscriberProvider(value) {
+			return fmt.Errorf("transcriber.provider: unknown value %q (use one of %s)", value, transcriberProviderList())
+		}
+		cfg.Transcriber.Provider = value
 	case "soniox.api_key":
 		cfg.Soniox.APIKey = value
 	case "soniox.model":

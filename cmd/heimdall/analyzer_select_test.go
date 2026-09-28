@@ -393,7 +393,7 @@ func TestRunRecord_WhisperPreflight(t *testing.T) {
 // "optional, may be unset" must be a real settable key, and on a fresh
 // config each returns an empty value instead of "not found".
 func TestOptionalConfigKeys_AreSettable(t *testing.T) {
-	probe := map[string]string{"claude.analyzer": "ollama", "ollama.max_context": "16384"}
+	probe := map[string]string{"claude.analyzer": "ollama", "ollama.max_context": "16384", "transcriber.provider": "soniox"}
 	for _, key := range optionalConfigKeys {
 		v, ok := probe[key]
 		if !ok {

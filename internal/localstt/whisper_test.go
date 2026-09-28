@@ -3,6 +3,7 @@ package localstt
 import (
 	"context"
 	"errors"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/0merUfuk/heimdall/internal/heimdall"
 )
 
 // realWhisperCLIOutputFixture is byte-for-byte the JSON whisper-cli 1.9.4
@@ -308,5 +311,99 @@ func TestExecCommandRunner_BinaryNotFound(t *testing.T) {
 	}
 	if !errors.Is(err, exec.ErrNotFound) {
 		t.Errorf("expected errors.Is(err, exec.ErrNotFound), got: %v", err)
+	}
+}
+
+// TestWhisperArgs_BoundContextAndSuppressNonSpeech pins the flags that stop
+// the hallucination loop seen on a real 57-minute meeting (ID-018): without
+// -mc 0 one bad window poisons all later ones.
+func TestWhisperArgs_BoundContextAndSuppressNonSpeech(t *testing.T) {
+	args := whisperArgs("m.bin", "a.wav", "/tmp/out", "tr")
+	joined := strings.Join(args, " ")
+	for _, want := range []string{"-mc 0", "-sns", "--diarize", "--language tr", "-m m.bin", "-f a.wav"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("args %q missing %q", joined, want)
+		}
+	}
+}
+
+func TestParseWhisperJSONStats_UnknownSpeakerInheritsPrevious(t *testing.T) {
+	data := `{"transcription": [
+		{"offsets":{"from":0,"to":1000},"text":" a","speaker":"1"},
+		{"offsets":{"from":1000,"to":2000},"text":" b","speaker":"?"},
+		{"offsets":{"from":2000,"to":3000},"text":" c"},
+		{"offsets":{"from":3000,"to":4000},"text":" d","speaker":"0"}
+	]}`
+	segs, unattributed, err := parseWhisperJSONStats([]byte(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unattributed != 2 {
+		t.Errorf("unattributed = %d, want 2", unattributed)
+	}
+	want := []int{1, 1, 1, 0}
+	for i, w := range want {
+		if segs[i].Speaker != w {
+			t.Errorf("segment %d speaker = %d, want %d", i, segs[i].Speaker, w)
+		}
+	}
+}
+
+// A run where whisper could not tell the channels apart must say so rather
+// than silently presenting one speaker.
+func TestTranscribeFile_WarnsWhenSpeakerSeparationUnavailable(t *testing.T) {
+	dir := t.TempDir()
+	modelPath := filepath.Join(dir, "m.bin")
+	wavPath := filepath.Join(dir, "a.wav")
+	for _, p := range []string{modelPath, wavPath} {
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runner := func(ctx context.Context, name string, args []string) error {
+		for i, a := range args {
+			if a == "--output-file" {
+				body := `{"transcription":[{"offsets":{"from":0,"to":1},"text":"a","speaker":"?"},{"offsets":{"from":1,"to":2},"text":"b","speaker":"?"},{"offsets":{"from":2,"to":3},"text":"c","speaker":"0"}]}`
+				return os.WriteFile(args[i+1]+".json", []byte(body), 0o600)
+			}
+		}
+		return errors.New("no --output-file")
+	}
+	var logBuf strings.Builder
+	log.SetOutput(&logBuf)
+	defer log.SetOutput(os.Stderr)
+
+	client := &Client{binPath: "whisper-cli", runner: runner}
+	if _, err := client.TranscribeFile(context.Background(), wavPath, Options{ModelPath: modelPath, Language: "en"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(logBuf.String(), "speaker separation unavailable") {
+		t.Errorf("expected a speaker-separation warning, log was: %q", logBuf.String())
+	}
+}
+
+func TestCollapseRepeatedSegments(t *testing.T) {
+	seg := func(text string, startSec int) heimdall.Segment {
+		return heimdall.Segment{Text: text, Start: time.Duration(startSec) * time.Second, End: time.Duration(startSec+1) * time.Second}
+	}
+	in := []heimdall.Segment{
+		seg("merhaba", 0),
+		seg("evet", 1), seg("evet", 2), seg("evet", 3), // 3 in a row: real speech, kept
+		seg("sen ne yapacaksın?", 4), seg("sen ne yapacaksın?", 5), seg("sen ne yapacaksın?", 6), seg("sen ne yapacaksın?", 7),
+		seg("tamam", 8),
+	}
+	out, dropped := collapseRepeatedSegments(in)
+	if dropped != 3 {
+		t.Fatalf("dropped = %d, want 3", dropped)
+	}
+	if len(out) != 6 {
+		t.Fatalf("len(out) = %d, want 6: %+v", len(out), out)
+	}
+	loop := out[4]
+	if loop.Text != "sen ne yapacaksın?" || loop.Start != 4*time.Second || loop.End != 8*time.Second {
+		t.Errorf("collapsed loop = %+v, want start 4s end 8s", loop)
+	}
+	if out[5].Text != "tamam" {
+		t.Errorf("segment after the loop lost: %+v", out[5])
 	}
 }

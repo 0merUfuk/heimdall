@@ -23,9 +23,10 @@ const (
 	// defaultSonioxBaseURL is the Soniox real-time streaming WebSocket endpoint.
 	defaultSonioxBaseURL = "wss://stt-rt.soniox.com/transcribe-websocket"
 
-	// defaultSonioxModel is the current production real-time model
-	// (`stt-rt-preview` is a superseded alias per docs, do not use).
-	defaultSonioxModel = "stt-rt-v4"
+	// defaultSonioxModel is the current production real-time model.
+	// stt-rt-v4 is an alias for it; stt-rt-v3 was retired 2026-02-28 and
+	// `stt-rt-preview` is superseded -- do not use either.
+	defaultSonioxModel = "stt-rt-v5"
 
 	// sonioxSegmentBufferSize is the outgoing segment channel capacity.
 	// Matches Deepgram's segmentBufferSize for symmetry.

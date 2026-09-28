@@ -85,7 +85,7 @@ func init() {
 	recordCmd.Flags().StringVar(&recordParticipants, "participants", "", "comma-separated list of participant names (hints for speaker identification)")
 	recordCmd.Flags().StringVar(&recordKeywords, "keywords", "", "comma-separated list of context keywords for analysis (Deepgram only; ignored for Soniox)")
 	recordCmd.Flags().StringVar(&recordProfile, "profile", "", "meeting profile name (from config)")
-	recordCmd.Flags().StringVar(&recordTranscriber, "transcriber", "deepgram", "transcription provider: deepgram (default), soniox, or whisper (offline: transcribed locally after the meeting)")
+	recordCmd.Flags().StringVar(&recordTranscriber, "transcriber", "", "transcription provider: soniox, deepgram, or whisper (offline: transcribed locally after the meeting). Default: transcriber.provider from config, else soniox when SONIOX_API_KEY is set, else deepgram when DEEPGRAM_API_KEY is set")
 	// small, not base: measured on a real 57-minute Turkish technical
 	// meeting, base/small-class output degraded far enough that the analyzer
 	// extracted zero decisions and zero action items from it (ID-016).
@@ -99,14 +99,16 @@ func init() {
 }
 
 func runRecord(cmd *cobra.Command, args []string) error {
-	// Validate --transcriber up front so an unknown value fails fast with a
-	// clear message before we open audio devices or prompt for consent.
-	switch recordTranscriber {
-	case "", transcriber.ProviderDeepgram, transcriber.ProviderSoniox, transcriber.ProviderWhisper:
-	default:
-		return fmt.Errorf("--transcriber %q is not valid: use %q (default), %q, or %q",
-			recordTranscriber, transcriber.ProviderDeepgram, transcriber.ProviderSoniox, transcriber.ProviderWhisper)
+	// Resolve the provider up front (flag > config > auto) so an unknown or
+	// unavailable one fails fast with a clear message before we open audio
+	// devices or prompt for consent. A malformed config is reported again,
+	// as a warning, by the full load below.
+	earlyCfg, _ := config.Load(config.ConfigPath())
+	choice, err := resolveTranscriber(recordTranscriber, earlyCfg, os.Getenv)
+	if err != nil {
+		return err
 	}
+	recordTranscriber = choice.Name
 	offlineCapture := recordTranscriber == transcriber.ProviderWhisper
 
 	// Validate --analyzer up front for the same fail-fast reason.
@@ -232,6 +234,11 @@ func runRecord(cmd *cobra.Command, args []string) error {
 		case transcriber.ProviderSoniox:
 			if cfg.Soniox.Language != "" {
 				recordLanguage = cfg.Soniox.Language
+			} else {
+				// Soniox auto-detects across languages; "en" here would pin
+				// it to English and mangle a Turkish or mixed TR/EN meeting
+				// (AD-011's motivating case).
+				recordLanguage = "multi"
 			}
 		default:
 			if cfg.Deepgram.Language != "" {
@@ -280,6 +287,7 @@ func runRecord(cmd *cobra.Command, args []string) error {
 	// Print header.
 	fmt.Printf("heimdall %s -- recording \"%s\"\n", version, recordTitle)
 	fmt.Println("Warning: Recording active -- ensure all participants have consented to recording.")
+	fmt.Printf("Transcriber: %s (%s)\n", recordTranscriber, choice.Why)
 
 	// Stage 1: Create audio sources.
 	systemSource := audio.NewSystemAudioSource("")
@@ -371,12 +379,22 @@ func runRecord(cmd *cobra.Command, args []string) error {
 			recWriter.AddSegment(seg)
 		}
 	})
-	if wavWriter != nil {
-		sess.OnAudioFrame(func(frame heimdall.AudioFrame) {
+	// Watch the live stereo stream: if L (system) and R (mic) turn out to be
+	// copies of each other, system audio is not being captured. Say so while
+	// the meeting is still running -- the first live test recorded 57 minutes
+	// with no remote voice and nothing warned (ID-017).
+	chanMonitor := recording.NewChannelMonitor(func(r recording.ChannelReport) {
+		fmt.Fprintf(os.Stderr, "\nWARNING: %s (%s)\n", recording.DuplicateWarning, r)
+	})
+	sess.OnAudioFrame(func(frame heimdall.AudioFrame) {
+		chanMonitor.Feed(frame)
+		if wavWriter != nil {
 			if err := wavWriter.WriteFrame(frame); err != nil {
 				log.Printf("warning: writing raw-audio frame: %v", err)
 			}
-		})
+		}
+	})
+	if wavWriter != nil {
 		// V-006 for audio: keep the WAV header current so a crash leaves a
 		// playable file of everything captured up to the last checkpoint.
 		go func() {

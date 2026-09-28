@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/0merUfuk/heimdall/internal/localstt"
+	"github.com/0merUfuk/heimdall/internal/recording"
 	"github.com/0merUfuk/heimdall/internal/recovery"
 )
 
@@ -72,6 +74,13 @@ func runTranscribe(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Transcribing %s locally via Whisper (%s model)...\n", transcribeFile, transcribeModel)
 	fmt.Println("This runs entirely on this machine -- no audio leaves it.")
+
+	// A meeting whose "system" and "mic" channels are copies of each other
+	// cannot be separated by speaker; tell the user before spending minutes
+	// transcribing it.
+	if rep, err := recording.AnalyzeWAV(transcribeFile); err == nil && rep.Duplicate {
+		fmt.Fprintf(os.Stderr, "Warning: %s (%s)\n", recording.DuplicateWarning, rep)
+	}
 
 	client := localstt.NewClient()
 
