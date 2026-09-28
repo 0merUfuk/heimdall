@@ -190,7 +190,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		if entries, derr := os.ReadDir(modelDir); derr == nil && len(entries) > 0 {
 			fmt.Printf("  [pass] whisper-cli found (%s) -- local transcription available, model(s) downloaded\n", path)
 		} else {
-			fmt.Printf("  [info] whisper-cli found (%s) -- run 'heimdall model download base' to enable local transcription\n", path)
+			fmt.Printf("  [info] whisper-cli found (%s) -- run 'heimdall model download small' to enable local transcription\n", path)
 		}
 		passed++
 	} else {

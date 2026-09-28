@@ -59,7 +59,7 @@ func runTranscribe(cmd *cobra.Command, args []string) error {
 	if _, err := exec.LookPath("whisper-cli"); err != nil {
 		return fmt.Errorf("whisper-cli not found on PATH\n\n" +
 			"Install it with:\n  brew install whisper-cpp\n\n" +
-			"Then download a model:\n  heimdall model download base")
+			"Then download a model:\n  heimdall model download small")
 	}
 
 	modelPath := localstt.ResolveModelPath(transcribeModel)

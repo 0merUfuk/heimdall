@@ -18,9 +18,10 @@ make build && make test          # binaries + full race suite
 make lint                        # vet + gofmt + golangci-lint
 make vuln                        # govulncheck
 gitleaks dir .                   # reviewed exceptions live in .gitleaksignore
-./bin/heimdall eval              # quality gate; pick the backend you ship against:
-./bin/heimdall eval --analyzer ollama       #   on-device (no credentials needed)
-./bin/heimdall eval --analyzer claude-code  #   or an existing Claude login
+# quality gate -- run exactly ONE, the backend you ship against:
+./bin/heimdall eval                         # default backend (needs ANTHROPIC_API_KEY)
+# ./bin/heimdall eval --analyzer ollama       # on-device (no credentials needed)
+# ./bin/heimdall eval --analyzer claude-code  # an existing Claude login
 ```
 
 `heimdall eval` needs a working backend, not necessarily `ANTHROPIC_API_KEY`: `--analyzer ollama` runs entirely locally. Compare the result against the recorded baselines in `docs/EVALUATION.md` -- a drop there is a release blocker, a Turkish-fixture failure on the local model is a known limitation (`.claude/KNOWN_ISSUES.md`).

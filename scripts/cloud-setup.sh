@@ -154,7 +154,6 @@ install_go() {
     local url="https://go.dev/dl/go${go_required}.linux-${arch}.tar.gz"
     local tgz="$dest.tar.gz"
     log "installing Go $go_required from $url"
-    mkdir -p "$dest"
     curl -fsSL -o "$tgz" "$url"
     # Verify before extracting: the toolchain runs on every later build, so
     # a tampered tarball would be code execution in the container. The
@@ -179,8 +178,15 @@ install_go() {
       log "  got      $got"
       exit 1
     fi
-    tar -xzf "$tgz" -C "$dest" --strip-components=1
+    # Extract into a scratch dir and rename into place, so an interrupted
+    # tar can never leave a half-populated $dest that passes the -x check.
+    local stage="$dest.partial"
+    rm -rf "$stage"
+    mkdir -p "$stage"
+    tar -xzf "$tgz" -C "$stage" --strip-components=1
     rm -f "$tgz"
+    rm -rf "$dest"
+    mv "$stage" "$dest"
   fi
   persist_path "$dest/bin"
 }

@@ -83,7 +83,7 @@ heimdall record --title "Meeting" --analyzer claude-code
 | `--participants` | Comma-separated participant names (hints for speaker ID) |
 | `--language` | Transcription language code (default: `en`, use `multi` for auto-detect) |
 | `--keywords` | Comma-separated context keywords (Deepgram only; ignored under `--transcriber soniox`) |
-| `--transcriber` | Transcription provider: `deepgram` (default), `soniox` (requires `SONIOX_API_KEY`), or `whisper` -- offline: no live transcript; the audio is saved and transcribed on this machine by whisper.cpp after you stop (needs `brew install whisper-cpp` and `heimdall model download base`) |
+| `--transcriber` | Transcription provider: `deepgram` (default), `soniox` (requires `SONIOX_API_KEY`), or `whisper` -- offline: no live transcript; the audio is saved and transcribed on this machine by whisper.cpp after you stop (needs `brew install whisper-cpp` and `heimdall model download small`) |
 | `--whisper-model` | Whisper model for `--transcriber whisper`: `tiny`, `base`, `small` (default), `medium`, `large`, or a path to a `.bin` file. Use `medium` for Turkish or jargon-heavy meetings -- on a real 57-minute Turkish meeting `small` produced a transcript with nothing extractable while `medium` yielded 2 decisions and 4 action items |
 | `--analyzer` | Meeting-analysis backend: `api` (default, needs `ANTHROPIC_API_KEY`), `claude-code` (local, logged-in `claude` CLI), `codex` (local, logged-in `codex` CLI), or `ollama` (fully on-device). Defaults to `claude.analyzer` from config |
 | `--profile` | Use a named meeting profile from config (loads title, language, participants, keywords); explicit flags override profile values |
@@ -180,14 +180,14 @@ heimdall transcribe --file meeting.wav --model small --language tr
 heimdall transcribe --file meeting.wav && heimdall analyze --file <printed path> --analyzer ollama
 ```
 
-Requires the `whisper-cli` binary (`brew install whisper-cpp`) and a downloaded model (`heimdall model download base`). Always passes whisper.cpp's built-in `--diarize` (stereo-channel diarization), separating system audio (remote participants) from your microphone -- a real but coarse two-party split, not per-individual diarization like Deepgram/Soniox. Writes output in the same format as crash recovery, so `heimdall analyze --file <path>` picks it up directly.
+Requires the `whisper-cli` binary (`brew install whisper-cpp`) and a downloaded model (`heimdall model download small`; `medium` for Turkish or jargon-heavy audio). Always passes whisper.cpp's built-in `--diarize` (stereo-channel diarization), separating system audio (remote participants) from your microphone -- a real but coarse two-party split, not per-individual diarization like Deepgram/Soniox. Writes output in the same format as crash recovery, so `heimdall analyze --file <path>` picks it up directly.
 
 ### `heimdall model download <size>`
 
 Downloads a Whisper model (`tiny`, `base`, `small`, `medium`, `large`) to `~/.heimdall/models/` for use with `heimdall transcribe`.
 
 ```bash
-heimdall model download base
+heimdall model download small
 ```
 
 ### `heimdall eval`
