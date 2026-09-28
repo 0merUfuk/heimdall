@@ -7,7 +7,7 @@ Named after the Norse god who could hear grass growing.
 ## Features
 
 - Captures system audio (remote participants) and microphone (your voice) simultaneously
-- Real-time transcription with speaker diarization via Deepgram Nova-3 (default), with Soniox as an opt-in alternative (`--transcriber soniox`)
+- Real-time transcription with speaker diarization via Soniox (default when `SONIOX_API_KEY` is set; Turkish and mixed TR/EN supported), with Deepgram Nova-3 as an alternative and fully offline Whisper as a third mode (`--transcriber soniox|deepgram|whisper`)
 - Optional fully-offline path: `--save-audio` to capture raw audio, `heimdall transcribe` to transcribe it locally via Whisper -- no cloud, no API key, no per-meeting cost
 - Post-meeting analysis -- summary, decisions, action items, speaker identification -- via your choice of backend: Claude (API key, or a local Claude Code login with `--analyzer claude-code`), Codex (a local Codex login with `--analyzer codex`), or **fully on-device** via [Ollama](https://ollama.com) (`--analyzer ollama` -- the transcript never leaves your Mac)
 - Fully offline meetings: `heimdall record --transcriber whisper --analyzer ollama` captures the meeting, transcribes it on your Mac with whisper.cpp after you stop, and analyzes it with a local model -- no audio, transcript, or analysis leaves the machine, no API key, no account
@@ -20,7 +20,7 @@ Named after the Norse god who could hear grass growing.
 
 - macOS 14.2+ (required for Core Audio Taps system audio capture)
 - Go 1.27+
-- Deepgram API key ([get one free](https://console.deepgram.com/))
+- A speech-to-text provider, one of: a Soniox API key ([soniox.com](https://soniox.com/), recommended), a Deepgram API key ([get one free](https://console.deepgram.com/)), or none at all with `--transcriber whisper` (offline; no per-person speaker separation)
 - For meeting analysis, one of:
   - an Anthropic API key (`--analyzer api`, the default), or
   - a local, logged-in [Claude Code](https://claude.com/claude-code) install (`--analyzer claude-code` -- reuses your existing Claude subscription, no separate API key), or
@@ -41,7 +41,7 @@ make build
 
 ```bash
 # Set API keys as environment variables (never stored in plaintext).
-export DEEPGRAM_API_KEY=your_deepgram_key
+export SONIOX_API_KEY=your_soniox_key      # default provider (or DEEPGRAM_API_KEY for Deepgram)
 export ANTHROPIC_API_KEY=your_anthropic_key
 
 # Run the interactive configuration wizard.
@@ -83,7 +83,7 @@ heimdall record --title "Meeting" --analyzer claude-code
 | `--participants` | Comma-separated participant names (hints for speaker ID) |
 | `--language` | Transcription language code (default: `en`, use `multi` for auto-detect) |
 | `--keywords` | Comma-separated context keywords (Deepgram only; ignored under `--transcriber soniox`) |
-| `--transcriber` | Transcription provider: `deepgram` (default), `soniox` (requires `SONIOX_API_KEY`), or `whisper` -- offline: no live transcript; the audio is saved and transcribed on this machine by whisper.cpp after you stop (needs `brew install whisper-cpp` and `heimdall model download small`) |
+| `--transcriber` | Transcription provider: `soniox`, `deepgram`, or `whisper`. Default: `transcriber.provider` from config, else `soniox` when `SONIOX_API_KEY` is set, else `deepgram` when `DEEPGRAM_API_KEY` is set (an explicit choice is never swapped for another provider). The `whisper` -- offline: no live transcript; the audio is saved and transcribed on this machine by whisper.cpp after you stop (needs `brew install whisper-cpp` and `heimdall model download small`) |
 | `--whisper-model` | Whisper model for `--transcriber whisper`: `tiny`, `base`, `small` (default), `medium`, `large`, or a path to a `.bin` file. Use `medium` for Turkish or jargon-heavy meetings -- on a real 57-minute Turkish meeting `small` produced a transcript with nothing extractable while `medium` yielded 2 decisions and 4 action items |
 | `--analyzer` | Meeting-analysis backend: `api` (default, needs `ANTHROPIC_API_KEY`), `claude-code` (local, logged-in `claude` CLI), `codex` (local, logged-in `codex` CLI), or `ollama` (fully on-device). Defaults to `claude.analyzer` from config |
 | `--profile` | Use a named meeting profile from config (loads title, language, participants, keywords); explicit flags override profile values |
@@ -133,7 +133,7 @@ heimdall analyze --file <transcript.json> --analyzer ollama
 
 Check all prerequisites: macOS version, API keys, audio permissions, vault path.
 
-The Soniox API key is checked as optional: `doctor` reports `[pass]` when `SONIOX_API_KEY` is set and `[info]` when it is not. Because Soniox is opt-in (`--transcriber soniox`), an unset key does not count as a failed check. The same pattern applies to Claude analysis: `doctor` passes as long as *either* `ANTHROPIC_API_KEY` or a working `claude` CLI is available, and only fails if neither is.
+The Soniox API key is checked as optional: `doctor` reports `[pass]` when `SONIOX_API_KEY` is set and `[info]` when it is not. Neither speech-to-text key is required on its own (either one, or `--transcriber whisper`, is enough), so an unset Soniox key does not count as a failed check. The same pattern applies to Claude analysis: `doctor` passes as long as *either* `ANTHROPIC_API_KEY` or a working `claude` CLI is available, and only fails if neither is.
 
 ### `heimdall list`
 
@@ -180,7 +180,7 @@ heimdall transcribe --file meeting.wav --model small --language tr
 heimdall transcribe --file meeting.wav && heimdall analyze --file <printed path> --analyzer ollama
 ```
 
-Requires the `whisper-cli` binary (`brew install whisper-cpp`) and a downloaded model (`heimdall model download small`; `medium` for Turkish or jargon-heavy audio). Always passes whisper.cpp's built-in `--diarize` (stereo-channel diarization), separating system audio (remote participants) from your microphone -- a real but coarse two-party split, not per-individual diarization like Deepgram/Soniox. Writes output in the same format as crash recovery, so `heimdall analyze --file <path>` picks it up directly.
+Requires the `whisper-cli` binary (`brew install whisper-cpp`) and a downloaded model (`heimdall model download small`; `medium` for Turkish or jargon-heavy audio). Always passes whisper.cpp's built-in `--diarize` (stereo-channel diarization), separating system audio (remote participants) from your microphone -- a real but coarse two-party split, not per-individual diarization like Deepgram/Soniox (when the two channels are indistinguishable it says so instead of silently showing one speaker). It runs whisper-cli with bounded text context (`-mc 0`) and non-speech suppression, collapses repetition loops, and warns before transcribing if the two channels are near-identical -- the sign that system audio was not captured. Writes output in the same format as crash recovery, so `heimdall analyze --file <path>` picks it up directly.
 
 ### `heimdall model download <size>`
 
@@ -236,6 +236,9 @@ Print version and build information.
 Configuration lives at `~/.heimdall/config.yaml`. API keys are stored as environment variable references.
 
 ```yaml
+transcriber:
+  provider: soniox        # soniox | deepgram | whisper; omit for auto (soniox if its key is set, else deepgram)
+
 deepgram:
   api_key: ${DEEPGRAM_API_KEY}
   model: nova-3
@@ -279,8 +282,8 @@ heimdall uses a 6-stage pipeline. The LLM appears in exactly one stage (Stage 5)
 ```
 Stage 1: CAPTURE     System audio (Swift/Core Audio Taps) + microphone (Go/malgo)
 Stage 2: MIX         Resample 48kHz->16kHz, interleave stereo (L=system, R=mic)
-Stage 3: TRANSCRIBE  Deepgram Nova-3 WebSocket (mono + diarize) -- identifies N speakers by voice fingerprinting
-                     | Soniox | whisper: nothing live, whisper.cpp runs on the saved audio after the meeting
+Stage 3: TRANSCRIBE  Soniox WebSocket (mono + diarize; default) or Deepgram Nova-3 WebSocket -- identify N speakers by voice
+                     | whisper: nothing live, whisper.cpp runs on the saved audio after the meeting
 Stage 4: ACCUMULATE  In-memory segments + live terminal display
 Stage 5: ANALYZE     Claude API | claude CLI | codex CLI | Ollama (on-device) -- post-meeting summary, decisions, action items
 Stage 6: RENDER      Go templates -> Obsidian-native markdown
@@ -330,7 +333,7 @@ heimdall/
   internal/
     audio/                AudioSource interface + mic/system implementations
     mixer/                Audio resampling, format conversion, stereo interleaving
-    transcriber/          Transcriber interface + Deepgram and Soniox WebSocket implementations (NewFromName factory)
+    transcriber/          Transcriber interface + Soniox and Deepgram WebSocket implementations (NewFromName factory)
     analyzer/             Analyzer interface + Claude API, Claude Code, Codex, and Ollama backends
     output/               Obsidian template rendering + file writing
     config/               Config loading, validation, defaults
@@ -348,7 +351,9 @@ By default heimdall sends meeting data to two external services. With `heimdall 
 
 | Data | Destination | Retention | Training |
 |------|-------------|-----------|----------|
-| Raw audio (PCM) | Deepgram (US) via WebSocket | Zero after processing | No (mip_opt_out=true) |
+| Raw audio (PCM), `--transcriber deepgram` | Deepgram (US) via WebSocket | Zero after processing | No (mip_opt_out=true) |
+| Raw audio (PCM), `--transcriber soniox` (default when its key is set) | Soniox via WebSocket | Per Soniox's data policy -- not verified here, read it at https://soniox.com/ before use | Per Soniox's policy |
+| Raw audio, `--transcriber whisper` | **Nowhere** -- transcribed on this machine | N/A | N/A |
 | Meeting transcript (`--analyzer api`, default) | Anthropic (US) via HTTPS | 7 days (API policy) | Never (API data excluded) |
 | Meeting transcript (`--analyzer claude-code` / `codex`) | Anthropic / OpenAI, under your own Claude Code / Codex account | Per your plan's terms | Per your plan's settings |
 | Meeting transcript (`--analyzer ollama`) | **Nowhere** -- analyzed on this machine | N/A | N/A |

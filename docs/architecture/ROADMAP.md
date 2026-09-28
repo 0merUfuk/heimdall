@@ -121,6 +121,8 @@ The roadmap progresses from a 1-week validation spike through a full-featured v1
 - [ ] Obsidian plugin for enhanced UX (sidebar, search, live status)
 - [ ] Alternative LLM backends (Ollama, GPT-4, Gemini)
 - [ ] Alternative STT backends (Gladia, Speechmatics)
+- [ ] Broader speech-provider compatibility (backlog, not scheduled -- AD-012): AssemblyAI (live, diarization; the original AD-002 fallback), **ElevenLabs Scribe** (batch API with diarization -- would fit the record-then-transcribe shape of the Whisper path; whether a realtime API exists and is usable here is unverified, check before scoping), Gladia. Each is one adapter behind `internal/transcriber.Transcriber` plus a `factory.go` case and a `--transcriber` value; a shared conformance test against a mock WebSocket/HTTP server would keep them honest. Open question before building any: does it beat Soniox on Turkish and TR/EN code-switching?
+- [ ] Local (on-device) speaker diarization for the offline path: run pyannote or sherpa-onnx over the saved WAV and merge speaker turns into Whisper's segments by timestamp. Today the offline path only separates left/right by energy (ID-018)
 - [ ] MCP server for external tool integration
 - [ ] Webhook output for Slack/Discord/Notion
 - [ ] Software echo cancellation (V-018)

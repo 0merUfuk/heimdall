@@ -292,6 +292,8 @@ Against the local-analyzer brief's bars: JSON validity 100% (bar >= 98%) and the
 
 ### ID-016: Swift tap format mismatch, and whisper model size as an analysis-quality gate
 
+> **CORRECTED 2026-09-28 -- do not rely on this entry's conclusions.** Analysing the same recording properly showed that Finding 1's "fix" did not make system audio work (the helper never read the tap at all -- ID-017), that Finding 3's "channels are genuinely independent" was wrong (R is L delayed 98 ms, correlation 0.997 -- ID-017), and that Finding 2's model-size matrix was measured on transcripts that had degenerated into a repetition loop (ID-018), so model size was confounded with the loop. What survives: `small` is a reasonable default and `medium` still helps on Turkish jargon; the *size of the effect* is not established. The original text is kept below for the record.
+
 **Date**: 2026-09-20 (found by the first real live meeting test)
 
 **Context**: The first live test of `record --transcriber whisper` was preceded by a 15-second capture preflight. It reported `system(L) peak=0` while the microphone captured fine.
@@ -312,4 +314,34 @@ Model size is the dominant variable: `small` yields nothing extractable in eithe
 **Finding 3 -- channel diarization collapses when the microphone hears the system output.** Both channels were verified genuinely independent (raw samples differ; no correlation at any lag), but their levels were nearly identical because the mic picked up the meeting audio and music. whisper.cpp's `--diarize` splits by relative per-channel energy, so 221 of 224 segments landed on one speaker. Headphones that do not leak are the practical fix; per-individual diarization needs a cloud transcriber (ID-008 already documents the coarseness).
 
 **Consequences**: the live test earned its keep -- Finding 1 is invisible to every unit test, the synthetic-audio suites, and the eval fixtures, because they never exercise a real Core Audio tap.
+
+### ID-017: The system-audio tap was never wired -- "system" was a second copy of the microphone
+
+**Date**: 2026-09-28 (found by analysing the 57-minute live recording)
+
+**Context**: The owner reviewed the first live note: no speech captured after ~18 minutes, transcription errors, and every segment on `Speaker 0` although several people spoke.
+
+**Finding**: `audio-helper` called `AudioHardwareCreateProcessTap` and then read `AVAudioEngine().inputNode`. A process tap is only a source: it does nothing until an aggregate device carrying it is read by an IOProc. `inputNode` follows the default *input* device, i.e. the microphone. So the "system" channel L was the mic, captured through AVAudioEngine, and R was the same mic captured through malgo. Evidence, all from the recording: R is L delayed by a constant 98.2 ms (correlation 0.997 at 1, 12, 20 and 30 minutes), per-minute RMS of L and R equal within 0.1% across the whole meeting, and a 5-second silent-room run of the helper produced a mic noise floor (~0.007) and a 1-channel format instead of the exact zeros and 2-channel format of a real global tap. The earlier "44.1kHz mono tap" (ID-016 Finding 1) was the headset microphone's format, and its "system peak 9717" was the mic.
+
+Nothing caught it: unit tests, the synthetic-audio suites and the eval fixtures never open a real tap, and the earlier session's independence check searched lags of only a few milliseconds (zero-lag correlation of this recording is ~0).
+
+**Decision**: (1) The helper now creates a private, unmuted global tap, reads its real format, wraps it in a private aggregate device and reads it through an IOProc; converts to the mixer's 48 kHz stereo Float32. The aggregate's sub-device list is deliberately empty, so no physical input can ever appear in its buffers -- this makes the original bug structurally impossible, including for a headset whose output device also has a mic. (2) `internal/recording/channelcheck.go` detects near-identical channels (two-stage lag search, +-500 ms, verdict needs >= 8 s of signal on both). `record` runs it live and prints a warning to stderr mid-meeting; `heimdall transcribe` runs it on the file before transcribing. On the real recording it reports "correlation 0.997 at -98 ms" in ~0.2 s. (3) The helper logs a warning after 5 s of digital silence from the tap, which is how macOS reports a missing system-audio permission (it delivers silence, not an error).
+
+**Not verified**: a positive capture. The development environment's Screen Recording permission is denied, so the tap delivered digital zeros (raw peak 0.0) even while a tone played -- which itself proves the wiring is no longer the mic (the old code returned noise). Confirming that real system audio arrives needs the manual test in `docs/MANUAL_TESTING.md` Scenario 0b.
+
+**Consequences**: system-audio capture had never worked in any shipped build (v0.1.0 included). Any transcript from a real meeting before this fix contains only what the microphone heard acoustically. The eval and unit suites still cannot exercise a real tap; the channel monitor is the runtime guard.
+
+### ID-018: Whisper runs with bounded context; repetition loops are filtered; unknown speakers are reported, not hidden
+
+**Date**: 2026-09-28
+
+**Context**: The first live transcript contained real speech only for minutes 0-17. From 18:06 to the end it was the single word "Hıhıhı" every ~15 seconds. The audio was fine (channel activity 50-80% through minute 56).
+
+**Finding**: `whisper-cli` was invoked with defaults, including unbounded text context (`-mc -1`): one bad window poisons every later window. Re-transcribing minutes 17-27 with the same model: default flags gave 39 segments with "Hıhı" x20; `-mc 0` gave 72 segments / 573 words with no repeat; `-mc 0 -sns` gave 66 segments / 587 words with no bracketed non-speech pseudo-segments. Over the full recording, `-mc 0` alone raised the transcript from 1,293 to 3,281 words, but still left short loops inside single 30-second windows (the same sentence 12-16 times at 3:12, 45:18, 50:06).
+
+Separately, whisper.cpp's `--diarize` emits `"?"` when left/right energy is equal, and `parseWhisperJSON` mapped any unparseable speaker to 0 without a word, so "one speaker" was indistinguishable from "could not tell".
+
+**Decision**: `-mc 0 -sns` on every whisper-cli call; consecutive runs of >= 4 identical segments are collapsed to one (first segment extended over the run; count logged); `"?"` segments inherit the previous speaker and, when more than half the segments are undecided, `TranscribeFile` logs that speaker separation was unavailable. `internal/localstt/whisper.go`.
+
+**Consequences**: the small-vs-medium matrix in ID-016/EVALUATION.md is not evidence about model size (both arms were loop-poisoned). It has to be re-measured on a recording with genuinely independent channels before any claim about model size is made.
 

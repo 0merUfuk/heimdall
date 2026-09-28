@@ -2,7 +2,18 @@
 
 ## Unreleased
 
+### Fixed
+- **System audio was never captured** (since v0.1.0): the Swift helper created a Core Audio process tap but read the default *input* device, so the "system" channel was a second copy of the microphone. It now reads the tap through a private aggregate device (ID-017).
+- Whisper transcripts no longer degenerate into a repeated word for the rest of a long meeting: `whisper-cli` runs with `-mc 0 -sns`, and runs of 4+ identical segments are collapsed (ID-018).
+- Whisper no longer silently labels undecidable speakers as `Speaker 0`: they inherit the previous speaker and a warning is logged when most segments are undecided.
+- `stt-rt-v3` is no longer accepted as a Soniox model (retired 2026-02-28); the default is `stt-rt-v5`.
+
 ### Added
+- `record` warns mid-meeting, and `heimdall transcribe` warns before transcribing, when the left (system) and right (microphone) channels are near-identical (`internal/recording/channelcheck.go`).
+- The Swift helper logs a warning after 5 s of digital silence from the tap (macOS's signature for a missing system-audio permission) and reports frames delivered and raw peak at shutdown.
+- `transcriber.provider` config key and provider auto-resolution for `record`: `--transcriber` > config > Soniox (if `SONIOX_API_KEY`) > Deepgram (if `DEEPGRAM_API_KEY`); prints which provider was chosen and why (AD-012). Soniox defaults to `--language multi` (TR + EN).
+- `docs/MANUAL_TESTING.md` Scenario 0b (Soniox live meeting) and a corrected capture preflight.
+- Roadmap backlog for broader speech-provider support and local diarization.
 - `--analyzer ollama` -- fully on-device meeting analysis via a local [Ollama](https://ollama.com) server (`internal/analyzer/ollama.go`). With `heimdall transcribe`, the whole path from audio to Obsidian note is offline: no audio, transcript, or analysis leaves the machine. Default model `qwen3:14b`. Uses Ollama's **native** `/api/chat`, not its OpenAI/Anthropic-compatible endpoints: those cannot set the context window per request, and Ollama was measured silently truncating a 60-minute transcript to 4,096 tokens there while still returning valid, plausible JSON with early action items missing (`.claude/DECISIONS.md` ID-011). The context window is sized per transcript; a transcript that does not fit is refused with an actionable message, never truncated. Output is schema-constrained at decode time (`format`), reasoning is disabled for bounded extraction (`think:false`). New config section `ollama:` (`base_url`, `model`, `max_context`), all optional.
 - `--analyzer codex` -- analysis via a local, logged-in `codex` CLI (`codex exec`), the Codex counterpart of `claude-code`. Defaults to the cheapest reliable tier, `gpt-5.6-luna` at low reasoning effort (`codex.model` to override). Runs isolated from the user's Codex config, project docs, and repository (`--ignore-user-config --strict-config`, empty private temp dir, read-only sandbox, ephemeral session), with the system prompt passed as `developer_instructions` (ID-012).
 - `heimdall record --transcriber whisper` -- fully offline meeting capture: nothing is transcribed live and nothing goes over the network; the audio is saved and transcribed on the machine by whisper.cpp after the stop, then analyzed. With `--analyzer ollama` a meeting never leaves the Mac. `whisper-cli` and the model are checked before the meeting starts (`--whisper-model`, default `base`) (ID-014).

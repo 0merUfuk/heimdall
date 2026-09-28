@@ -102,28 +102,37 @@ Synthetic transcripts at realistic speech density (150 words/min in English), wi
 
 On the golden fixtures the local default is roughly on par with Haiku (5/7 deterministic vs 6/7). Its real gaps are Turkish instruction-following (the two failing fixtures) and long-context recall in the middle of a meeting; Haiku is also 20-30x faster. Choose the local backend for privacy, not for quality or speed.
 
-### Real meeting (2026-09-20)
+### Real meeting (2026-09-20) -- corrected 2026-09-28
 
-The first live run: a 57-minute Turkish technical meeting captured with `record --transcriber whisper`, transcribed locally, analyzed with `--analyzer codex` (`gpt-5.6-luna`). Content stays private; only the measurements are recorded here.
+The first live run: a 57-minute Turkish technical meeting captured with `record --transcriber whisper`, transcribed locally, analyzed with `--analyzer codex` (`gpt-5.6-luna`). Content stays private; only measurements are recorded here.
 
-All four model/language combinations were run against that same recording with the same analyzer (one run per cell; Codex is not deterministic, so a single-item difference is noise):
+**The earlier version of this section is withdrawn.** It reported a small/medium x auto/`tr` matrix (0/0, 0/0, 0/2, 2/4 decisions/actions) and concluded that model size was the dominant variable, and it said the two channels were "genuinely independent". Both were wrong, for reasons found by analysing the recording properly (`.claude/DECISIONS.md` ID-017, ID-018):
 
-| Whisper model | Language | Decisions | Action items | Segments | Transcription time |
-|---|---|---|---|---|---|
-| `small` | auto | 0 | 0 | 224 (204 music) | 51 s |
-| `small` | `tr` | 0 | 0 | 224 | 55 s |
-| `medium` | auto | 0 | 2 | 299 | 145 s |
-| `medium` | `tr` | **2** | **4**, with owners (one honestly marked uncertain) | 312 | 178 s |
+- **The channels were the same microphone.** R is L delayed a constant 98 ms at correlation 0.997; per-minute RMS of L and R matched within 0.1% for the whole meeting. The helper never read the system-audio tap (it read the default input device). No remote voice was ever captured, which is why every segment sat on one speaker. The earlier independence check searched lags of a few milliseconds only.
+- **Every cell of the matrix was loop-poisoned.** With whisper's default unbounded context, one bad window made the transcript repeat "Hıhıhı" every ~15 seconds from minute 18 to the end (the `small` runs additionally labelled long stretches as music). Model size was therefore confounded with the loop; the matrix is not evidence about model size.
 
-Analysis cost was flat across cells (21-23K input tokens, 12-18 s). The empty note on the first pass was a transcription failure, not an analyzer failure: `small` mangled the domain vocabulary ("YAML" -> "yamul dosyeti") in both language modes, so there was nothing to extract. Model size is the dominant variable; an explicit `--language` adds on top of the bigger model rather than replacing it. This is why the defaults moved to `small` and `medium` plus an explicit language is documented for Turkish or jargon-heavy meetings (`.claude/DECISIONS.md` ID-016).
+What a corrected run looks like -- same recording, same model (`medium`), same language (`tr`), same analyzer (Codex), one run, so single-item differences are noise:
 
-Two more findings from the same run, both invisible to the synthetic suites:
-- The Swift helper never captured system audio on a 44.1kHz mono tap (fixed, ID-016). The 15-second capture preflight caught it *before* the meeting: `system(L) peak=0`, and `9717` after the fix.
-- Channel diarization collapsed (221 of 224 segments on one speaker) because the microphone heard the meeting audio at the same level as the system channel. The channels were verified genuinely independent (no correlation at any lag); the limit is whisper.cpp's energy-based `--diarize`.
+| | Whisper as first run (defaults) | Whisper with `-mc 0 -sns` + loop collapse |
+|---|---|---|
+| Transcript words | 1,293 (words in minutes 18-56: 4 per minute, all "Hıhıhı") | 3,281 before loop collapse; 34 repeated segments removed after |
+| Segments | 312 | 400 |
+| Decisions | 2 | 4 |
+| Action items | 4 | 5 |
+| Discussion topics | 5 | 7 |
+| Analysis | 12-18 s | 28 s, 26.7K input tokens |
+
+Isolated reproduction on minutes 17-27 alone: default flags gave 39 segments with "Hıhı" x20; `-mc 0` gave 72 segments / 573 words; `-mc 0 -sns` gave 66 segments / 587 words with no bracketed non-speech segments.
+
+**Not verified**: that the corrected note's decisions and action items match what was actually said -- the owner has not confirmed them, and the transcript still contains mis-heard product vocabulary (e.g. a model name that is unclear). The small-vs-medium question is open: re-measure it on a recording with independent channels (`docs/MANUAL_TESTING.md` Scenario 0b) before drawing any conclusion about model size.
+
+Two more consequences of the same finding:
+- Speaker separation could not have worked in that run regardless of provider: both channels carried the same audio. Whisper's energy-based `--diarize` reported "no difference" for 418 of 434 segments.
+- `heimdall transcribe` and `record` now flag this automatically (near-identical channels: correlation 0.997 at -98 ms on this recording, detected in ~0.2 s), so the next such failure is announced instead of discovered by reading a note.
 
 ### Not yet measured
 
-- **Real meetings**: one 57-minute meeting is measured above; everything else on this page is synthetic. A broader real-meeting sample (other languages, speaker counts, audio setups) is still unmeasured.
+- **Real meetings**: one 57-minute meeting is measured above, and its two channels were the same microphone, so speaker separation and system-audio capture were not actually exercised. Everything else on this page is synthetic. A real-meeting sample with independent channels (other languages, speaker counts, audio setups) is still unmeasured.
 
 A possible check refinement, deliberately not made mid-comparison: `checkNoHallucinatedNames` treats a joint owner string ("Dana and Lena") as one name, so it fails even when every person in it is in the transcript.
 

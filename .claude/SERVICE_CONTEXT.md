@@ -1,6 +1,6 @@
 **Version**: 5.1
 **Created**: 2026-03-28
-**Last Updated**: 2026-09-19
+**Last Updated**: 2026-09-28
 **Authors:** Omer Ufuk
 
 ---
@@ -19,6 +19,22 @@
 - **Release**: `docs/RELEASING.md` -- the process, plus the one-time owner setup still outstanding (see Known Issues)
 - **Build**: `make build` produces `bin/heimdall` (Go) + `bin/heimdall-audio` (Swift); `make audio-helper-universal` produces the release's universal (arm64+x86_64) Swift binary
 - **Tests on `main`**: all packages green (`go test ./... -race -count=1`), CI green
+
+---
+
+## Live-test fixes (branch `claude/heimdall-offline-analyzer-502957`, 2026-09-28) -- READ FIRST
+
+The first real 57-minute meeting exposed three defects that no unit test could see. All fixed in code; **one thing is still unverified on hardware** (below).
+
+| Defect | Fix | Evidence |
+|---|---|---|
+| "System audio" was the microphone: `audio-helper` created a process tap but read `AVAudioEngine.inputNode` (the default input). L and R were both the mic (R = L delayed 98 ms, corr 0.997). Present since v0.1.0. | `audio-helper/Sources/main.swift` now reads the tap via a private aggregate device + IOProc; aggregate has no sub-devices, so no mic can leak in (ID-017) | recording analysis; silent-room helper run: old code = mic noise floor, new code = exact zeros |
+| Transcript became "Hıhıhı" from minute 18 to the end | `internal/localstt/whisper.go`: `-mc 0 -sns`, collapse of 4+ identical segments (ID-018) | full recording 1,293 -> 3,281 words; minutes 17-27: 39 segs / 20x "Hıhı" -> 66 segs / 587 words |
+| Speakers all `Speaker 0`, silently | `"?"` carried forward + warning when most segments are undecided; `recording.ChannelMonitor` warns live and `heimdall transcribe` warns on file when L and R are near-identical (`internal/recording/channelcheck.go`) | detects the real recording: corr 0.997 at -98 ms in ~0.2 s |
+
+**STT provider**: `record` defaults to Soniox when `SONIOX_API_KEY` is set, else Deepgram when `DEEPGRAM_API_KEY` is set, else an error offering `--transcriber whisper`; `transcriber.provider` in config pins it; an explicit choice is never swapped (AD-012, `cmd/heimdall/transcriber_select.go`). Soniox model default `stt-rt-v5`.
+
+**Not yet verified**: (1) real system audio actually arriving from the tap -- the dev environment's Screen Recording permission is denied, so the tap delivered zeros; (2) the Soniox adapter against the live API (no key). Both are checked by `docs/MANUAL_TESTING.md` Scenario 0b.
 
 ---
 
