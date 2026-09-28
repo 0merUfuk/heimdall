@@ -4,7 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -25,13 +29,23 @@ func wrapInClaudeCodeEnvelope(result string, isError bool) string {
 
 // stubRunner returns a commandRunner that ignores its arguments and always
 // returns the given stdout/err, recording the args/stdin it was called with.
+// It also asserts the isolation contract every claude-code call must carry:
+// an existing, empty working directory and the isolation env vars.
 func stubRunner(stdout string, err error, capturedArgs *[]string, capturedStdin *string) commandRunner {
-	return func(ctx context.Context, name string, args []string, stdin string) (string, error) {
+	return func(ctx context.Context, name string, args []string, stdin string, opts runOpts) (string, error) {
 		if capturedArgs != nil {
 			*capturedArgs = args
 		}
 		if capturedStdin != nil {
 			*capturedStdin = stdin
+		}
+		if entries, derr := os.ReadDir(opts.Dir); opts.Dir == "" || derr != nil || len(entries) != 0 {
+			return "", fmt.Errorf("stubRunner: working dir %q must exist and be empty", opts.Dir)
+		}
+		for _, want := range claudeCodeIsolationEnv {
+			if !slices.Contains(opts.Env, want) {
+				return "", fmt.Errorf("stubRunner: missing isolation env %s", want)
+			}
 		}
 		return stdout, err
 	}
@@ -39,7 +53,7 @@ func stubRunner(stdout string, err error, capturedArgs *[]string, capturedStdin 
 
 func TestClaudeCodeAnalyzer_SuccessfulAnalysis(t *testing.T) {
 	var callCount atomic.Int32
-	runner := func(ctx context.Context, name string, args []string, stdin string) (string, error) {
+	runner := func(ctx context.Context, name string, args []string, stdin string, _ runOpts) (string, error) {
 		callCount.Add(1)
 		return wrapInClaudeCodeEnvelope(sampleAnalysisJSON(), false), nil
 	}
@@ -73,7 +87,7 @@ func TestClaudeCodeAnalyzer_NotLoggedIn(t *testing.T) {
 	// is_error:true and a "Not logged in" result -- verified empirically
 	// against `claude -p` directly. callOnce must surface a clear,
 	// actionable error rather than a raw JSON dump.
-	runner := func(ctx context.Context, name string, args []string, stdin string) (string, error) {
+	runner := func(ctx context.Context, name string, args []string, stdin string, _ runOpts) (string, error) {
 		return wrapInClaudeCodeEnvelope("Not logged in · Please run /login", true), &exec.ExitError{}
 	}
 
@@ -94,7 +108,7 @@ func TestClaudeCodeAnalyzer_NotLoggedIn(t *testing.T) {
 }
 
 func TestClaudeCodeAnalyzer_BinaryNotFound(t *testing.T) {
-	runner := func(ctx context.Context, name string, args []string, stdin string) (string, error) {
+	runner := func(ctx context.Context, name string, args []string, stdin string, _ runOpts) (string, error) {
 		return "", &exec.Error{Name: name, Err: exec.ErrNotFound}
 	}
 
@@ -112,7 +126,7 @@ func TestClaudeCodeAnalyzer_BinaryNotFound(t *testing.T) {
 }
 
 func TestClaudeCodeAnalyzer_UnparseableOutput(t *testing.T) {
-	runner := func(ctx context.Context, name string, args []string, stdin string) (string, error) {
+	runner := func(ctx context.Context, name string, args []string, stdin string, _ runOpts) (string, error) {
 		return "not json at all", nil
 	}
 
@@ -127,7 +141,7 @@ func TestClaudeCodeAnalyzer_UnparseableOutput(t *testing.T) {
 }
 
 func TestClaudeCodeAnalyzer_EmptyResult(t *testing.T) {
-	runner := func(ctx context.Context, name string, args []string, stdin string) (string, error) {
+	runner := func(ctx context.Context, name string, args []string, stdin string, _ runOpts) (string, error) {
 		return wrapInClaudeCodeEnvelope("", false), nil
 	}
 
@@ -143,7 +157,7 @@ func TestClaudeCodeAnalyzer_EmptyResult(t *testing.T) {
 
 func TestClaudeCodeAnalyzer_RetryThenSucceed(t *testing.T) {
 	var callCount atomic.Int32
-	runner := func(ctx context.Context, name string, args []string, stdin string) (string, error) {
+	runner := func(ctx context.Context, name string, args []string, stdin string, _ runOpts) (string, error) {
 		count := callCount.Add(1)
 		if count <= 2 {
 			return wrapInClaudeCodeEnvelope("transient failure", true), &exec.ExitError{}
@@ -176,9 +190,16 @@ func TestClaudeCodeAnalyzer_ArgsAndStdin(t *testing.T) {
 	}
 
 	joined := strings.Join(capturedArgs, " ")
-	for _, want := range []string{"-p", "--bare", "--restricted", "--permission-prompts", "none", "--output-format", "json", "--system-prompt"} {
+	for _, want := range []string{"-p", "--restricted", "--strict-mcp-config", "--no-session-persistence", "--disable-slash-commands", "--permission-prompts", "none", "--output-format", "json", "--system-prompt"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("args should contain %q, got: %v", want, capturedArgs)
+		}
+	}
+	// --bare must NOT be passed: it makes Claude Code ignore the OAuth /
+	// subscription login this backend exists to use (ID-015).
+	for _, a := range capturedArgs {
+		if a == "--bare" {
+			t.Errorf("args must not contain --bare, got: %v", capturedArgs)
 		}
 	}
 	// No --model flag when opts.Model is empty -- let Claude Code use its own default.
@@ -217,7 +238,7 @@ func TestClaudeCodeAnalyzer_EmptyTranscript(t *testing.T) {
 	// No runner call expected -- empty transcript short-circuits before any
 	// subprocess is spawned (same contract as ClaudeAnalyzer).
 	called := false
-	runner := func(ctx context.Context, name string, args []string, stdin string) (string, error) {
+	runner := func(ctx context.Context, name string, args []string, stdin string, _ runOpts) (string, error) {
 		called = true
 		return "", nil
 	}
@@ -238,7 +259,7 @@ func TestClaudeCodeAnalyzer_EmptyTranscript(t *testing.T) {
 func TestClaudeCodeAnalyzer_ContextTimeout(t *testing.T) {
 	// callOnce should respect context cancellation rather than hang forever
 	// on a wedged subprocess.
-	runner := func(ctx context.Context, name string, args []string, stdin string) (string, error) {
+	runner := func(ctx context.Context, name string, args []string, stdin string, _ runOpts) (string, error) {
 		select {
 		case <-ctx.Done():
 			return "", ctx.Err()
@@ -264,7 +285,7 @@ func TestClaudeCodeAnalyzer_ContextTimeout(t *testing.T) {
 }
 
 func TestExecCommandRunner_BinaryNotFound(t *testing.T) {
-	_, err := execCommandRunner(context.Background(), "heimdall-this-binary-does-not-exist", nil, "")
+	_, err := execCommandRunner(context.Background(), "heimdall-this-binary-does-not-exist", nil, "", runOpts{})
 	if err == nil {
 		t.Fatal("expected an error for a nonexistent binary")
 	}
@@ -278,11 +299,26 @@ func TestExecCommandRunner_RealProcess(t *testing.T) {
 	// command so the stdin-piping and stdout-capture wiring is verified
 	// end-to-end, without depending on the `claude` binary being installed
 	// or authenticated in the test environment.
-	out, err := execCommandRunner(context.Background(), "cat", nil, "hello from stdin")
+	out, err := execCommandRunner(context.Background(), "cat", nil, "hello from stdin", runOpts{})
 	if err != nil {
 		t.Fatalf("execCommandRunner: unexpected error: %v", err)
 	}
 	if out != "hello from stdin" {
 		t.Errorf("stdout: got %q, want %q", out, "hello from stdin")
+	}
+}
+
+// TestExecCommandRunner_DirAndEnv verifies runOpts reach the real process.
+func TestExecCommandRunner_DirAndEnv(t *testing.T) {
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := execCommandRunner(context.Background(), "sh", []string{"-c", `pwd; echo "$HEIMDALL_RUNOPTS_TEST"`}, "", runOpts{Dir: dir, Env: []string{"HEIMDALL_RUNOPTS_TEST=on"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := dir + "\non\n"; out != want {
+		t.Errorf("stdout: got %q, want %q", out, want)
 	}
 }

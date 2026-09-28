@@ -62,7 +62,12 @@ type WAVWriter struct {
 	mu        sync.Mutex
 	dataBytes uint32
 	closed    bool
+	full      bool // 4 GiB WAV limit reached; further frames are dropped
 }
+
+// maxWAVDataBytes is the largest payload a canonical WAV header can
+// describe (its data-size field is a uint32).
+const maxWAVDataBytes = uint64(^uint32(0))
 
 // NewWAVWriter creates the parent directory (0700, matching
 // internal/recovery and internal/config's convention for heimdall-owned
@@ -104,12 +109,41 @@ func (w *WAVWriter) WriteFrame(frame heimdall.AudioFrame) error {
 		return nil
 	}
 
+	// A WAV header counts payload bytes in a uint32, so the format itself
+	// tops out at 4 GiB -- about 18.6 hours of 16 kHz 16-bit stereo. Stop
+	// appending at the limit instead of wrapping the counter, which would
+	// leave a header describing a fraction of the data and make the whole
+	// recording unreadable.
+	if uint64(w.dataBytes)+uint64(len(frame.Data)) > maxWAVDataBytes {
+		if !w.full {
+			w.full = true
+			return fmt.Errorf("%s reached the 4 GiB WAV size limit; the recording stops here", w.path)
+		}
+		return nil
+	}
+
 	n, err := w.f.Write(frame.Data)
 	if err != nil {
 		return fmt.Errorf("writing audio frame to %s: %w", w.path, err)
 	}
 	w.dataBytes += uint32(n)
 	return nil
+}
+
+// Checkpoint patches the header with the data size written so far, so a
+// crash mid-recording leaves a playable WAV of everything captured up to
+// the last checkpoint instead of one whose header claims zero bytes of
+// audio. The record command calls it periodically (V-006's 30s cadence).
+// A no-op after Close.
+func (w *WAVWriter) Checkpoint() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.closed {
+		return nil
+	}
+	// A positional write: the append offset never moves, so no failure
+	// here can make the next WriteFrame overwrite recorded audio.
+	return w.patchHeader(w.dataBytes)
 }
 
 // Close patches the WAV header with the final data size and closes the
@@ -123,20 +157,35 @@ func (w *WAVWriter) Close() error {
 	}
 	w.closed = true
 
-	if err := w.writeHeader(w.dataBytes); err != nil {
+	if err := w.patchHeader(w.dataBytes); err != nil {
 		w.f.Close()
 		return err
 	}
 	return w.f.Close()
 }
 
-// writeHeader seeks to the start of the file and writes the 44-byte
-// canonical 16-bit PCM WAV header sized for dataBytes of payload, then
-// returns with the file position at offset 44 (Write advances the file
-// position by the bytes written) -- so the first call, at construction with
-// dataBytes=0, leaves the file correctly positioned for the first
-// WriteFrame with no separate seek-to-end step needed.
+// patchHeader rewrites the header in place with WriteAt, leaving the file
+// offset (the append position for WriteFrame) untouched.
+func (w *WAVWriter) patchHeader(dataBytes uint32) error {
+	if _, err := w.f.WriteAt(w.headerBytes(dataBytes), 0); err != nil {
+		return fmt.Errorf("writing WAV header to %s: %w", w.path, err)
+	}
+	return nil
+}
+
+// writeHeader writes the initial header at construction. The file is new,
+// so the offset is 0 and Write leaves it at 44, ready for the first
+// WriteFrame. Later rewrites use patchHeader, which never moves the offset.
 func (w *WAVWriter) writeHeader(dataBytes uint32) error {
+	if _, err := w.f.Write(w.headerBytes(dataBytes)); err != nil {
+		return fmt.Errorf("writing WAV header to %s: %w", w.path, err)
+	}
+	return nil
+}
+
+// headerBytes builds the 44-byte canonical 16-bit PCM WAV header sized for
+// dataBytes of payload.
+func (w *WAVWriter) headerBytes(dataBytes uint32) []byte {
 	const (
 		bitsPerSample = 16
 		pcmFormat     = 1
@@ -159,11 +208,5 @@ func (w *WAVWriter) writeHeader(dataBytes uint32) error {
 	copy(header[36:40], "data")
 	binary.LittleEndian.PutUint32(header[40:44], dataBytes)
 
-	if _, err := w.f.Seek(0, 0); err != nil {
-		return fmt.Errorf("seeking to WAV header in %s: %w", w.path, err)
-	}
-	if _, err := w.f.Write(header); err != nil {
-		return fmt.Errorf("writing WAV header to %s: %w", w.path, err)
-	}
-	return nil
+	return header
 }

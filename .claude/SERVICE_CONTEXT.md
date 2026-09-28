@@ -1,6 +1,6 @@
-**Version**: 5.0
+**Version**: 5.1
 **Created**: 2026-03-28
-**Last Updated**: 2026-09-14
+**Last Updated**: 2026-09-28
 **Authors:** Omer Ufuk
 
 ---
@@ -21,6 +21,35 @@
 - **Tests on `main`**: all packages green (`go test ./... -race -count=1`), CI green
 
 ---
+
+## Live-test fixes (branch `claude/heimdall-offline-analyzer-502957`, 2026-09-28) -- READ FIRST
+
+The first real 57-minute meeting exposed three defects that no unit test could see. All fixed in code; **one thing is still unverified on hardware** (below).
+
+| Defect | Fix | Evidence |
+|---|---|---|
+| "System audio" was the microphone: `audio-helper` created a process tap but read `AVAudioEngine.inputNode` (the default input). L and R were both the mic (R = L delayed 98 ms, corr 0.997). Present since v0.1.0. | `audio-helper/Sources/main.swift` now reads the tap via a private aggregate device + IOProc; aggregate has no sub-devices, so no mic can leak in (ID-017) | recording analysis; silent-room helper run: old code = mic noise floor, new code = exact zeros |
+| Transcript became "Hıhıhı" from minute 18 to the end | `internal/localstt/whisper.go`: `-mc 0 -sns`, collapse of 4+ identical segments (ID-018) | full recording 1,293 -> 3,281 words; minutes 17-27: 39 segs / 20x "Hıhı" -> 66 segs / 587 words |
+| Speakers all `Speaker 0`, silently | `"?"` carried forward + warning when most segments are undecided; `recording.ChannelMonitor` warns live and `heimdall transcribe` warns on file when L and R are near-identical (`internal/recording/channelcheck.go`) | detects the real recording: corr 0.997 at -98 ms in ~0.2 s |
+
+**STT provider**: `record` defaults to Soniox when `SONIOX_API_KEY` is set, else Deepgram when `DEEPGRAM_API_KEY` is set, else an error offering `--transcriber whisper`; `transcriber.provider` in config pins it; an explicit choice is never swapped (AD-012, `cmd/heimdall/transcriber_select.go`). Soniox model default `stt-rt-v5`.
+
+**Not yet verified**: (1) real system audio actually arriving from the tap -- the dev environment's Screen Recording permission is denied, so the tap delivered zeros; (2) the Soniox adapter against the live API (no key). Both are checked by `docs/MANUAL_TESTING.md` Scenario 0b.
+
+---
+
+## In Progress: Local/offline analyzer + Codex + cloud (branch `claude/heimdall-offline-analyzer-502957`, 2026-09-19)
+
+Not merged yet. Four analysis backends instead of two, a Codex developer setup, and cloud-container support. Decisions and measured evidence: `.claude/DECISIONS.md` ID-011 (Ollama), ID-012 (Codex), ID-013 (cloud).
+
+- `--analyzer ollama` (`internal/analyzer/ollama.go`) -- on-device analysis via Ollama's native API, context sized per transcript, over-long transcripts refused not truncated. Default `qwen3:14b`. `heimdall transcribe` + `analyze --analyzer ollama` is offline end to end.
+- `--analyzer codex` (`internal/analyzer/codex.go`) -- `codex exec`, isolated, default `gpt-5.6-luna` at low effort. Verified live: 6/7, 6/7, 5/7 on the eval, 21/21 valid JSON (`docs/EVALUATION.md`).
+- `record --transcriber whisper` -- fully offline meeting capture: audio saved (checkpointed every 30 s), transcribed by whisper.cpp after the stop (ID-014).
+- `--analyzer claude-code` fixed for subscription logins (`--bare` removed, isolation rebuilt and verified, ID-015); 7/7 on the eval through the real binary.
+- Cloud baseline measured: Haiku 6/7 (api) vs `qwen3:14b` 5/7 -- `docs/EVALUATION.md`.
+- Fallback no longer deletes the recovery transcript; `claude.analyzer` from config honored by every analysis command; `config set claude.analyzer` works; the prompt names the output language.
+- `.codex/config.toml` + per-role Codex models; `AGENTS.md` rewritten (the previous one pointed at nonexistent `.Codex/` paths).
+- `scripts/cloud-setup.sh` + `.claude/settings.json` SessionStart hook; full test suite verified passing on Linux (ubuntu:24.04, golang:1.24 images).
 
 ## What Shipped in This Round (PRs #29-#41)
 
@@ -52,7 +81,7 @@ New architectural decisions: `.claude/DECISIONS.md` ID-005 through ID-010 (renum
 | `internal/mixer` | Resample 48->16kHz, interleave stereo (L=system, R=mic) -- downmixed to mono by session.go before Deepgram (ID-001) |
 | `internal/transcriber` | Transcriber interface (streaming) + DeepgramTranscriber + SonioxTranscriber + `NewFromName` factory |
 | `internal/localstt` | Batch (non-streaming) local transcription via whisper-cli subprocess. Deliberately NOT a `Transcriber` implementation -- see DECISIONS.md ID-007. |
-| `internal/analyzer` | Analyzer interface + ClaudeAnalyzer (API, with cost/latency logging) + ClaudeCodeAnalyzer (subprocess) + `NewFromName` factory + shared `summarizeWithRetry` |
+| `internal/analyzer` | Analyzer interface + ClaudeAnalyzer (API, with cost/latency logging) + ClaudeCodeAnalyzer (subprocess) + OllamaAnalyzer (native Ollama API, on-device) + CodexAnalyzer (`codex exec` subprocess) + `NewFromName(name, Settings)` factory + shared `summarizeWithRetry` and `analysisJSONSchema` |
 | `internal/eval` | Golden-fixture quality suite for the Analyze stage |
 | `internal/vault` | Reads meeting notes back out of the Obsidian vault (the inverse of `internal/output`) -- powers `heimdall mcp` |
 | `internal/mcpserver` | MCP server over stdio exposing `internal/vault` as three tools |
@@ -70,14 +99,14 @@ New architectural decisions: `.claude/DECISIONS.md` ID-005 through ID-010 (renum
 
 | Command | Purpose |
 |---------|---------|
-| `heimdall record` | Full pipeline recording (`--profile`, `--transcriber deepgram\|soniox`, `--analyzer api\|claude-code`, `--save-audio`) |
-| `heimdall doctor` | Check prerequisites (macOS version, API keys, audio permissions, vault path, claude CLI, whisper-cli) |
+| `heimdall record` | Full pipeline recording (`--profile`, `--transcriber deepgram\|soniox\|whisper`, `--analyzer api\|claude-code\|ollama\|codex`, `--save-audio`) |
+| `heimdall doctor` | Check prerequisites (macOS version, API keys, audio permissions, vault path, claude/codex CLIs, Ollama + model, whisper-cli) |
 | `heimdall list` | List past meeting notes |
 | `heimdall config init/get/set/show/edit/path/add-profile/profiles` | Configuration management |
 | `heimdall recover` | Scan for orphaned recovery files and re-analyze |
 | `heimdall analyze --file <path>` | Re-analyze a specific recovery transcript JSON file |
 | `heimdall transcribe --file <wav>` | Local offline transcription via Whisper |
 | `heimdall model download <size>` | Fetch a ggml Whisper model |
-| `heimdall eval` | Meeting-analysis quality suite |
+| `heimdall eval` | Meeting-analysis quality suite (`--analyzer`, `--model`, `--judge`, `--json`) |
 | `heimdall mcp` | MCP server over stdio, exposing the vault to any MCP client |
 | `heimdall version` | Print version info |

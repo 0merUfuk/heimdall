@@ -1,6 +1,8 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"runtime"
 	"strings"
 	"testing"
@@ -143,3 +145,36 @@ func (errNotCalled) Error() string { return "runner should not have been called"
 type errSpawnFailed struct{}
 
 func (errSpawnFailed) Error() string { return "spawn failed" }
+
+func TestHasOllamaModel(t *testing.T) {
+	installed := []string{"qwen3:14b", "llama3.2:latest"}
+	for want, ok := range map[string]bool{"qwen3:14b": true, "llama3.2": true, "llama3.2:latest": true, "qwen3:8b": false, "qwen3": false} {
+		if got := hasOllamaModel(installed, want); got != ok {
+			t.Errorf("hasOllamaModel(%q) = %v, want %v", want, got, ok)
+		}
+	}
+}
+
+func TestDefaultOllamaProbe(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/tags" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"models":[{"name":"qwen3:14b"},{"name":"qwen2.5:7b"}]}`))
+	}))
+	defer srv.Close()
+
+	models, err := defaultOllamaProbe(srv.URL + "/")
+	if err != nil {
+		t.Fatalf("probe: %v", err)
+	}
+	if len(models) != 2 || models[0] != "qwen3:14b" {
+		t.Errorf("models: got %v", models)
+	}
+
+	srv.Close()
+	if _, err := defaultOllamaProbe(srv.URL); err == nil {
+		t.Error("probe of a stopped server should fail")
+	}
+}

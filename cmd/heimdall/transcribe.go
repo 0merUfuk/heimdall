@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/0merUfuk/heimdall/internal/localstt"
+	"github.com/0merUfuk/heimdall/internal/recording"
 	"github.com/0merUfuk/heimdall/internal/recovery"
 )
 
@@ -48,7 +50,7 @@ downloaded model (heimdall model download <size>).`,
 
 func init() {
 	transcribeCmd.Flags().StringVar(&transcribeFile, "file", "", "path to a WAV audio file, e.g. from --save-audio (required)")
-	transcribeCmd.Flags().StringVar(&transcribeModel, "model", localstt.ModelBase, "whisper model: tiny, base, small, medium, large, or a path to a .bin file")
+	transcribeCmd.Flags().StringVar(&transcribeModel, "model", localstt.ModelSmall, "whisper model: tiny, base, small (default), medium, large, or a path to a .bin file. Use medium for Turkish or jargon-heavy audio")
 	transcribeCmd.Flags().StringVar(&transcribeLanguage, "language", "en", "spoken language code (e.g. en, tr), or auto/multi for language auto-detect")
 	transcribeCmd.Flags().StringVar(&transcribeTitle, "title", "", "title for the resulting transcript (defaults to the audio filename)")
 	_ = transcribeCmd.MarkFlagRequired("file")
@@ -59,7 +61,7 @@ func runTranscribe(cmd *cobra.Command, args []string) error {
 	if _, err := exec.LookPath("whisper-cli"); err != nil {
 		return fmt.Errorf("whisper-cli not found on PATH\n\n" +
 			"Install it with:\n  brew install whisper-cpp\n\n" +
-			"Then download a model:\n  heimdall model download base")
+			"Then download a model:\n  heimdall model download small")
 	}
 
 	modelPath := localstt.ResolveModelPath(transcribeModel)
@@ -72,6 +74,13 @@ func runTranscribe(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Transcribing %s locally via Whisper (%s model)...\n", transcribeFile, transcribeModel)
 	fmt.Println("This runs entirely on this machine -- no audio leaves it.")
+
+	// A meeting whose "system" and "mic" channels are copies of each other
+	// cannot be separated by speaker; tell the user before spending minutes
+	// transcribing it.
+	if rep, err := recording.AnalyzeWAV(transcribeFile); err == nil && rep.Duplicate {
+		fmt.Fprintf(os.Stderr, "Warning: %s (%s)\n", recording.DuplicateWarning, rep)
+	}
 
 	client := localstt.NewClient()
 

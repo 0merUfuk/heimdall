@@ -1,5 +1,8 @@
 name = "growth-lead"
 description = "Growth lead (CMO perspective) for heimdall. Reviews adoption channels (GitHub, Hacker News, Reddit r/Obsidian), content strategy, community health, and open-source distribution. Produces growth briefs and channel recommendations."
+# Cheapest model tier that reliably handles this role -- see AGENTS.md "Codex model policy".
+model = "gpt-5.6-luna"
+model_reasoning_effort = "medium"
 developer_instructions = """
 **Version**: 1.0
 **Created**: 2026-03-29
@@ -46,7 +49,7 @@ Heimdall is a developer tool distributed as open-source. Growth for developer to
 ### 1. Read Current State
 1. Read `docs/architecture/STRATEGY.md` -- market positioning
 2. Read `docs/architecture/PROJECT.md` -- target audience
-3. Read `.Codex/SERVICE_CONTEXT.md` -- what features are live
+3. Read `.claude/SERVICE_CONTEXT.md` -- what features are live
 4. Run `git log --oneline -20` -- what shipped recently
 5. Check GitHub for issues, stars, forks
 

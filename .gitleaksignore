@@ -1,0 +1,11 @@
+# gitleaks allowlist -- reviewed 2026-09-20, all four are deliberately fake
+# values, not credentials:
+#   cmd/heimdall/config_test.go  - fixtures for the secret-masking tests
+#   .claude/knowledge/go-rules/* - "never do this" examples in the security
+#                                  and observability rule docs
+# Keeping them listed means `gitleaks dir .` stays clean, so a real leak
+# stands out instead of being lost in known noise.
+.claude/knowledge/go-rules/13-observability.md:generic-api-key:152
+.claude/knowledge/go-rules/09-security.md:generic-api-key:177
+cmd/heimdall/config_test.go:generic-api-key:29
+cmd/heimdall/config_test.go:generic-api-key:229

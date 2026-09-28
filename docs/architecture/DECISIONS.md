@@ -12,7 +12,7 @@
 | ID | Decision | Status | Date |
 |----|---------|--------|------|
 | AD-001 | Go + Swift hybrid architecture | Accepted | 2026-03-28 |
-| AD-002 | Deepgram as primary STT provider | Accepted | 2026-03-28 |
+| AD-002 | Deepgram as primary STT provider | Default superseded by AD-012 | 2026-03-28 |
 | AD-003 | Provider abstraction layer (3 interfaces) | Accepted | 2026-03-28 |
 | AD-004 | Post-meeting Claude processing (not real-time) | Accepted | 2026-03-28 |
 | AD-005 | File-based Obsidian integration (no plugin) | Accepted | 2026-03-28 |
@@ -22,6 +22,7 @@
 | AD-009 | CLI-first, web dashboard deferred to post-v1.0 | Accepted | 2026-03-28 |
 | AD-010 | macOS 14.2+ minimum (Core Audio Taps requirement) | Accepted | 2026-03-28 |
 | AD-011 | Adopt Option A ("Ship-And-Hide") from 2026-04-16 strategic audit | Accepted | 2026-04-21 |
+| AD-012 | Soniox as the default STT provider; Deepgram and Whisper kept as alternatives | Accepted | 2026-09-28 |
 | ID-001 | Mono + diarize over stereo + multichannel (supersedes AD-007) | Accepted | 2026-04-01 |
 
 > **ID-* entries** are implementation decisions recorded after the initial AD set; they are first-class and may supersede an AD. ID-001 is documented in full below; ID-002 through ID-004 live in `.claude/DECISIONS.md`.
@@ -268,3 +269,20 @@ The pipeline rules (`.claude/rules/pipeline-rules.md`) and audio-safety rules (`
 - **Budget discipline**: no sustained content calendar, no GTM hires, no paid ads, no Product Hunt coordination. These are Path A moves that Option A explicitly declines.
 
 **Relationship to other ADRs**: Does not supersede prior decisions. Complements AD-006 (MIT license, "revisit at distribution" — Option A confirms MIT for v0.1.0) and AD-009 (CLI-first, web dashboard deferred — Option A's 30/60/90 plan keeps that deferral intact). Independent of AD-010 (macOS 14.2+ minimum).
+
+---
+
+## AD-012: Soniox as the default STT provider; Deepgram and Whisper kept as alternatives
+
+**Status**: Accepted
+**Date**: 2026-09-28
+
+**Context**: The Deepgram key used for development was deleted (it returned 401), and Deepgram had never been the best fit for the owner's Turkish and mixed TR/EN meetings (AD-011 added Soniox for exactly that). The only two providers that separate speakers by voice are Deepgram and Soniox; the offline Whisper path separates only left from right by energy (ID-018) and cannot tell three people apart.
+
+**Decision**: `record` resolves its provider as: `--transcriber` flag, else `transcriber.provider` in config, else auto -- Soniox when `SONIOX_API_KEY` is set, otherwise Deepgram when `DEEPGRAM_API_KEY` is set, otherwise an error listing the options (including offline `whisper`). An explicit choice is never swapped for another provider (that would send meeting audio somewhere the user did not pick); only the auto path falls back, and it prints which provider it chose and why. With Soniox and no configured language the default is `multi` (Turkish + English hints with language identification), not `en`. Default model `stt-rt-v5`; `stt-rt-v4` is accepted (a v5 alias) and `stt-rt-v3` is rejected (retired 2026-02-28 per Soniox docs).
+
+**Alternatives kept, not built now**: AssemblyAI, Gladia, ElevenLabs Scribe and a local diarizer (pyannote / sherpa-onnx) -- see `docs/architecture/ROADMAP.md` Phase 4 backlog. Adding one is a new adapter behind the existing `Transcriber` interface plus a `factory.go` case; ElevenLabs Scribe's batch API would fit the record-then-transcribe shape of the Whisper path; whether it offers a usable realtime API is unverified.
+
+**Consequences**: Deepgram remains fully supported (`--transcriber deepgram`, or `transcriber.provider: deepgram`). `config.Validate` still requires `deepgram.api_key`; it has no production callers, so this does not block a Soniox-only user today, but it should be relaxed if a caller is added.
+
+**Verified / not verified**: the Soniox adapter's wire format (config frame fields, token schema, empty-frame termination, 300-minute cap) matches Soniox's current WebSocket documentation, and its 17 unit tests pass against a mock server. It has **not** been exercised against the live Soniox API -- no key was available. That is the first thing the next manual test checks.

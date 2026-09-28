@@ -59,8 +59,8 @@ Every external dependency sits behind an interface:
 | Interface | Package | Implementations |
 |-----------|---------|----------------|
 | `AudioSource` | `internal/audio/` | `MicrophoneSource` (malgo), `SystemAudioSource` (Swift subprocess) |
-| `Transcriber` | `internal/transcriber/` | `DeepgramTranscriber` (WebSocket) |
-| `Analyzer` | `internal/analyzer/` | `ClaudeAnalyzer` (Anthropic API) |
+| `Transcriber` | `internal/transcriber/` | `DeepgramTranscriber` (WebSocket), `SonioxTranscriber` (WebSocket), `CaptureOnlyTranscriber` (`--transcriber whisper`: nothing live; whisper.cpp runs on the saved audio after the meeting, ID-014) |
+| `Analyzer` | `internal/analyzer/` | `ClaudeAnalyzer` (Anthropic API), `ClaudeCodeAnalyzer` (`claude -p`), `OllamaAnalyzer` (local Ollama, on-device, ID-011), `CodexAnalyzer` (`codex exec`, ID-012) |
 | `OutputWriter` | `internal/output/` | `ObsidianWriter` (markdown templates) |
 
 All tests must use mock implementations, not real external services.

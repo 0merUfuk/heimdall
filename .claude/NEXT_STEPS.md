@@ -1,6 +1,6 @@
-**Version**: 5.0
+**Version**: 5.1
 **Created**: 2026-03-28
-**Last Updated**: 2026-09-14
+**Last Updated**: 2026-09-28
 **Authors:** Omer Ufuk
 
 ---
@@ -18,6 +18,32 @@
 ## Status (2026-09-14)
 
 **v0.1.0 is tagged and released**: [github.com/0merUfuk/heimdall/releases/tag/v0.1.0](https://github.com/0merUfuk/heimdall/releases/tag/v0.1.0). 11 PRs (#29-#41) merged into `main` over 2026-09-13/14, closing the CI break, adding a second Analyzer backend, a real eval system, local Whisper transcription, an MCP server, cost/latency observability, a lint/gofmt CI gate, a real (previously broken) release pipeline, and tag-triggered release automation. Full contents: `.claude/SERVICE_CONTEXT.md`.
+
+## Next manual test (2026-09-28): `docs/MANUAL_TESTING.md` Scenario 0b
+
+The live-test defects are fixed in code (see `.claude/SERVICE_CONTEXT.md`, ID-017/ID-018, AD-012); what remains needs a person, a permission, and a key:
+
+| Task | Owner | Why |
+|------|-------|-----|
+| Grant "Screen & System Audio Recording" to the terminal app, run the tap preflight (`raw peak` must be > 0) | Owner | Only positive proof that real system audio arrives; the dev environment lacks the permission |
+| Export `SONIOX_API_KEY`; run Scenario 0b with 2+ other speakers and headphones on | Owner | First live use of the Soniox adapter; first real speaker-separation check |
+| Report the terminal output of any Soniox auth/protocol error verbatim | Owner | Adapter is mock-tested only |
+| Do not merge PR #43 until the tap preflight passes | Owner | The shipped tap never worked; merging without verifying repeats v0.1.0 |
+| Re-measure the small-vs-medium Whisper comparison on that recording | Agent, after the test | The old matrix was loop-poisoned (ID-018) |
+
+Backlog (deliberately not started): broader speech providers (ElevenLabs Scribe etc.) and a local diarizer -- `docs/architecture/ROADMAP.md` Phase 4.
+
+## In review: local/offline analyzer + Codex + cloud (branch `claude/heimdall-offline-analyzer-502957`)
+
+Built and verified locally; see `.claude/SERVICE_CONTEXT.md` and `.claude/DECISIONS.md` ID-011..013. Remaining before/after merge:
+
+| Task | Owner | Why |
+|------|-------|-----|
+| Review + merge the branch | Owner | Nothing merged yet |
+| ~~`heimdall eval --analyzer codex`~~ | Done 2026-09-20 | 6/7, 6/7, 5/7 live; see `docs/EVALUATION.md` |
+| Live meeting test of `record --transcriber whisper --analyzer ollama` | Owner present in a real meeting; needs macOS Microphone + Screen & System Audio Recording permission for the app that runs it | The one thing synthetic audio cannot validate |
+| Set the Codex cloud environment's Setup script to `scripts/cloud-setup.sh` | Owner (ChatGPT web UI) | Cannot be configured from the repo |
+| Map-reduce for meetings longer than the local context window | Only if real meetings overflow | Deliberately deferred (ID-011) |
 
 ## Immediate (owner actions -- nothing left here is a code-readiness gap)
 
@@ -53,7 +79,7 @@
 ## Post-v2 Roadmap
 
 See `docs/STRATEGY_V2.md` Phase 3+ and `docs/PRODUCTIZATION.md` v3:
-- Local LLM via Ollama (OpenAI-compatible adapter) -- not started
+- Local LLM via Ollama -- **built** on this branch (`--analyzer ollama`), via Ollama's native API rather than the OpenAI-compatible adapter originally planned (ID-011 explains why)
 - Cross-meeting intelligence (vault-as-memory) -- not started; PRODUCTIZATION.md v3 scopes this as a Pro (paid) feature
 - Meeting type templates (standup, 1:1, planning) -- not started; also scoped as Pro
 - Calendar integration (iCal) -- not started; also scoped as Pro

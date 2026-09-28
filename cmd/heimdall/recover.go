@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -22,10 +20,11 @@ var recoverCmd = &cobra.Command{
 	Short: "Recover and process unfinished meeting transcripts",
 	Long: `Scans the recovery directory (~/.heimdall/recovery/) for orphaned
 transcript files from crashed or interrupted sessions. Offers to
-re-analyze them via Claude and write meeting notes to the Obsidian vault.
+re-analyze them and write meeting notes to the Obsidian vault.
 
-Use --analyzer claude-code to analyze via a local, already-logged-in
-'claude' CLI instead of ANTHROPIC_API_KEY.`,
+Use --analyzer claude-code or --analyzer codex to analyze via a local,
+already-logged-in CLI instead of ANTHROPIC_API_KEY, or --analyzer ollama to
+analyze fully on-device. Defaults to claude.analyzer from config.`,
 	RunE: runRecover,
 }
 
@@ -35,19 +34,23 @@ var recoverAnalyzer string
 var analyzeCmd = &cobra.Command{
 	Use:   "analyze",
 	Short: "Re-analyze a transcript file",
-	Long: `Re-analyze a recovery transcript file via Claude and write the
-meeting note to the Obsidian vault.
+	Long: `Re-analyze a recovery transcript file (from a crashed session, or
+from 'heimdall transcribe') and write the meeting note to the Obsidian vault.
+
+With 'heimdall transcribe' and --analyzer ollama the whole path is offline:
+no audio, transcript, or analysis ever leaves this machine.
 
 Example:
-  heimdall analyze --file ~/.heimdall/recovery/2026-03-28T14-30-00-sprint-planning.json`,
+  heimdall analyze --file ~/.heimdall/recovery/2026-03-28T14-30-00-sprint-planning.json
+  heimdall analyze --file <path> --analyzer ollama`,
 	RunE: runAnalyze,
 }
 
 func init() {
 	analyzeCmd.Flags().StringVar(&analyzeFile, "file", "", "path to recovery transcript JSON file (required)")
 	_ = analyzeCmd.MarkFlagRequired("file")
-	recoverCmd.Flags().StringVar(&recoverAnalyzer, "analyzer", "api", "meeting-analysis backend: api (default, needs ANTHROPIC_API_KEY) or claude-code (local claude login)")
-	analyzeCmd.Flags().StringVar(&recoverAnalyzer, "analyzer", "api", "meeting-analysis backend: api (default, needs ANTHROPIC_API_KEY) or claude-code (local claude login)")
+	recoverCmd.Flags().StringVar(&recoverAnalyzer, "analyzer", "api", analyzerFlagUsage)
+	analyzeCmd.Flags().StringVar(&recoverAnalyzer, "analyzer", "api", analyzerFlagUsage)
 	rootCmd.AddCommand(recoverCmd)
 	rootCmd.AddCommand(analyzeCmd)
 }
@@ -76,28 +79,30 @@ func runRecover(cmd *cobra.Command, args []string) error {
 
 	fmt.Println()
 
-	// Check if Claude analysis is available for the selected backend.
+	cfg := loadResolvedConfig()
+	name := resolveAnalyzerName(cmd, recoverAnalyzer, cfg)
+
+	// Check if analysis is available for the selected backend.
 	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
-	if recoverAnalyzer != analyzer.ProviderClaudeCode && anthropicKey == "" {
+	if analyzer.RequiresAPIKey(name) && anthropicKey == "" {
 		fmt.Println("ANTHROPIC_API_KEY not set -- cannot re-analyze.")
 		fmt.Println("Set the key and run 'heimdall recover' again, or use:")
 		fmt.Println("  heimdall recover --analyzer claude-code   (reuse a local Claude Code login)")
+		fmt.Println("  heimdall recover --analyzer ollama        (analyze fully on-device)")
 		fmt.Println("  heimdall analyze --file <path>")
 		return nil
 	}
 
-	// Process each recovery file.
-	cfg, _ := config.Load(config.ConfigPath())
-	if cfg != nil {
-		if err := cfg.ResolveEnvVars(); err != nil {
-			log.Printf("warning: resolving config env vars: %v", err)
-		}
+	setup, err := newAnalyzerSetup(name, cfg, anthropicKey)
+	if err != nil {
+		return err
 	}
 
+	// Process each recovery file.
 	for _, rf := range files {
 		fmt.Printf("\nProcessing: %s (%s)...\n", rf.Metadata.Title, rf.Metadata.StartTime.Format("2006-01-02 15:04"))
 
-		if err := analyzeRecoveryFile(rf, anthropicKey, cfg); err != nil {
+		if err := analyzeRecoveryFile(rf, setup, cfg); err != nil {
 			log.Printf("warning: failed to process %s: %v", rf.Metadata.Title, err)
 			continue
 		}
@@ -114,68 +119,68 @@ func runAnalyze(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Loaded: %s (%d segments)\n", rf.Metadata.Title, len(rf.Segments))
 
+	cfg := loadResolvedConfig()
+	name := resolveAnalyzerName(cmd, recoverAnalyzer, cfg)
+
 	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
-	if recoverAnalyzer != analyzer.ProviderClaudeCode && anthropicKey == "" {
+	if analyzer.RequiresAPIKey(name) && anthropicKey == "" {
 		return fmt.Errorf("ANTHROPIC_API_KEY environment variable is not set\n\n" +
 			"Set it with:\n  export ANTHROPIC_API_KEY=your_key_here\n" +
-			"or reuse a local Claude Code login:\n  heimdall analyze --file <path> --analyzer claude-code")
+			"or reuse a local Claude Code login:\n  heimdall analyze --file <path> --analyzer claude-code\n" +
+			"or analyze fully on-device:\n  heimdall analyze --file <path> --analyzer ollama")
 	}
 
+	setup, err := newAnalyzerSetup(name, cfg, anthropicKey)
+	if err != nil {
+		return err
+	}
+
+	return analyzeRecoveryFile(*rf, setup, cfg)
+}
+
+// loadResolvedConfig loads the config file and expands ${VAR} references.
+// A missing or malformed config is not fatal here: analysis falls back to
+// backend defaults and the note is displayed instead of written.
+func loadResolvedConfig() *config.Config {
 	cfg, _ := config.Load(config.ConfigPath())
 	if cfg != nil {
 		if err := cfg.ResolveEnvVars(); err != nil {
 			log.Printf("warning: resolving config env vars: %v", err)
 		}
 	}
-
-	return analyzeRecoveryFile(*rf, anthropicKey, cfg)
+	return cfg
 }
 
-// analyzeRecoveryFile runs Claude analysis on a recovery file and writes the
-// meeting note to the Obsidian vault. anthropicKey is ignored when
-// recoverAnalyzer selects the claude-code backend.
-func analyzeRecoveryFile(rf recovery.RecoveryFile, anthropicKey string, cfg *config.Config) error {
+// analyzeRecoveryFile runs analysis on a recovery file with the resolved
+// backend and writes the meeting note to the Obsidian vault.
+func analyzeRecoveryFile(rf recovery.RecoveryFile, setup *analyzerSetup, cfg *config.Config) error {
 	if len(rf.Segments) == 0 {
 		fmt.Println("  No segments to analyze -- skipping.")
 		return nil
 	}
 
-	// Determine the model: config value, then fallback to the package
-	// default -- but only for the API backend (see record.go for the same
-	// rationale: claude-code should use the user's own `claude` default
-	// unless they've explicitly configured a model).
-	model := ""
-	if cfg != nil && cfg.Claude.Model != "" && !strings.HasPrefix(cfg.Claude.Model, "${") {
-		model = cfg.Claude.Model
-	}
-	if recoverAnalyzer != analyzer.ProviderClaudeCode && model == "" {
-		model = analyzer.DefaultModel
-	}
-
-	claude, err := analyzer.NewFromName(recoverAnalyzer, anthropicKey)
-	if err != nil {
-		return err
-	}
 	opts := heimdall.AnalyzeOpts{
-		Model:    model,
+		Model:    setup.Model,
 		Language: rf.Metadata.Language,
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), setup.Timeout)
 	defer cancel()
 
-	if recoverAnalyzer == analyzer.ProviderClaudeCode {
-		fmt.Println("  Analyzing via Claude Code (local login)...")
-	} else {
-		fmt.Println("  Analyzing via Claude...")
-	}
-	note, err := claude.Summarize(ctx, rf.Segments, opts)
+	fmt.Printf("  Analyzing via %s...\n", setup.Label)
+	note, err := setup.Analyzer.Summarize(ctx, rf.Segments, opts)
 	if err != nil {
-		return fmt.Errorf("claude analysis failed: %w", err)
+		return fmt.Errorf("analysis failed: %w", err)
 	}
 
 	if note == nil {
-		return fmt.Errorf("claude returned nil result")
+		return fmt.Errorf("analyzer returned nil result")
+	}
+
+	// A fallback note (V-009) is the raw transcript, not an analysis: keep
+	// the recovery file so the meeting can be re-analyzed later.
+	if note.IsFallback {
+		printFallbackGuidance(setup, note, rf.Path)
 	}
 
 	// Fill in metadata from recovery file.
@@ -203,8 +208,9 @@ func analyzeRecoveryFile(rf recovery.RecoveryFile, anthropicKey string, cfg *con
 
 		fmt.Printf("  Meeting note saved: %s\n", path)
 
-		// Delete the recovery file after successful write.
-		if rf.Path != "" {
+		// Delete the recovery file after successful write -- unless the
+		// note is only a fallback and the transcript still needs analysis.
+		if rf.Path != "" && !note.IsFallback {
 			if err := os.Remove(rf.Path); err != nil && !os.IsNotExist(err) {
 				log.Printf("warning: failed to delete recovery file %s: %v", rf.Path, err)
 			}

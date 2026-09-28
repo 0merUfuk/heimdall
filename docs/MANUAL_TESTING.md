@@ -2,7 +2,7 @@
 
 **Date**: 2026-03-31
 **Purpose**: Step-by-step manual testing to verify each pipeline stage works with real audio.
-**Pre-req**: Both binaries built (`make build`), API keys exported.
+**Pre-req**: Both binaries built (`make build`). Cloud scenarios need API keys exported; Scenario 0 (fully offline) needs none.
 
 ---
 
@@ -34,6 +34,152 @@ heimdall doctor -- checking prerequisites...
 
 5/5 checks passed. Ready to record.
 ```
+
+---
+
+## Scenario 0: Fully Offline Live Meeting (no API keys, nothing leaves the Mac)
+
+**What it proves**: the whole pipeline -- capture -> local Whisper transcription -> local model analysis -> Obsidian note -- with no network call for the meeting content. This is the acceptance test for `--transcriber whisper` (ID-014) and `--analyzer ollama` (ID-011).
+
+### One-time prerequisites
+
+```bash
+brew install whisper-cpp ollama
+heimdall model download small       # ~465 MB, the default
+heimdall model download medium      # ~1.4 GB; worth trying for Turkish or jargon-heavy
+                                    # meetings (the earlier "small vs medium" numbers were
+                                    # measured on loop-poisoned transcripts -- ID-018 --
+                                    # so the size of the gain is unproven)
+ollama serve &                      # or launch the Ollama app
+ollama pull qwen3:14b               # ~9.3 GB
+heimdall config set claude.analyzer ollama
+heimdall config set ollama.base_url http://localhost:11434   # pin it: a previously
+                                                             # configured remote host
+                                                             # would receive transcripts
+heimdall config set obsidian.vault_path ~/path/to/vault
+```
+
+**macOS privacy permissions** (System Settings -> Privacy & Security) for the app you run heimdall from -- Terminal, iTerm, or whichever launches it:
+
+| Permission | Why | Without it |
+|---|---|---|
+| **Microphone** | your own voice | `record` fails or blocks at the permission prompt |
+| **Screen & System Audio Recording** | the other participants (Core Audio tap) | `heimdall-audio --check-permissions` prints `denied`; only your mic is recorded |
+
+Verify before the meeting -- this must print `granted`:
+
+```bash
+./bin/heimdall-audio --check-permissions && ./bin/heimdall doctor
+```
+
+`doctor` should show `[pass] Ollama reachable ... with qwen3:14b` and `[pass] whisper-cli found`. `DEEPGRAM_API_KEY`/`ANTHROPIC_API_KEY` may be unset: this path needs neither.
+
+### 60-second capture preflight (run it before joining)
+
+Two independent checks. A meeting is only worth recording once both pass. (An earlier version of this preflight only asked that "both channel peaks are above 0" -- which the buggy build passed, because both channels were the microphone. ID-017.)
+
+**1. The system-audio tap itself** -- play a sound and read the helper's own summary:
+
+```bash
+( sleep 1; afplay /System/Library/Sounds/Sosumi.aiff ) &
+sleep 5 | ./bin/heimdall-audio > /dev/null
+# last line: audio capture stopped (tap delivered N frames, raw peak P)
+```
+
+`P` must be **above 0**. `raw peak 0.0` with a `warning: ... digital silence` line means macOS is giving the tap silence because the app you run heimdall from lacks the "Screen & System Audio Recording" permission -- grant it and restart that app.
+
+**2. The two channels are independent** -- record 20 s while a video plays *and* you speak, then let heimdall judge:
+
+```bash
+./bin/heimdall record --transcriber whisper --analyzer ollama --save-audio --title "preflight"
+# play speech from a video for ~20 s, say a sentence into the mic, Ctrl+C
+./bin/heimdall transcribe --file "$(ls -t ~/.heimdall/recordings/*.wav | head -1)" --model small
+```
+
+`transcribe` prints `Warning: the left (system audio) and right (microphone) channels are near-identical ...` if they are copies. **No such warning** is the pass condition. (The same check also runs live during `record`, after about 15 seconds of signal.)
+
+### The meeting
+
+```bash
+./bin/heimdall record --transcriber whisper --whisper-model medium \
+  --analyzer ollama --title "Weekly sync"
+# --whisper-model medium + an explicit --language are the safer choice for Turkish
+# or jargon-heavy meetings (ID-018 explains why the earlier evidence is not
+# conclusive). For English, small is enough.
+# Wear closed headphones: if the mic hears the meeting audio, both channels carry
+# the same sound and the speaker split collapses to a single speaker.
+```
+
+There is **no live transcript** in this mode -- the terminal says so, and that is expected. Press Ctrl+C when the meeting ends; transcription and analysis then run on the Mac (roughly 2-4 minutes each for a 1-hour meeting).
+
+### Acceptance checklist
+
+- [ ] Terminal shows `STT: whisper (on this machine, after you stop)` and the offline-capture notice
+- [ ] Ctrl+C is followed by `Transcribing ... locally via Whisper`, then `Analyzing via Ollama at http://localhost:11434 (on-device -- the transcript does not leave this machine)`. If that label says **REMOTE host**, stop: `ollama.base_url` points somewhere else and the transcript would be sent there
+- [ ] `Meeting note saved: <vault>/meetings/<date>/<title>.md`
+- [ ] The note's **Action Items** table contains the task, owner, and deadline that were actually spoken
+- [ ] **Key Decisions** contains the decision that was actually made, attributed to whoever made it
+- [ ] The raw transcript at the end of the note matches what was said (Whisper accuracy)
+- [ ] Speakers are split as you (mic) vs. everyone else (system audio) -- per-person names only appear when someone is named out loud
+- [ ] `ls ~/.heimdall/recovery/` is empty (the transcript is cleaned up only after a successful note)
+- [ ] Turkish meeting: the summary and action items are in Turkish
+- [ ] While recording, `nettop`/Little Snitch show no heimdall traffic leaving the machine
+
+### If analysis fails
+
+The meeting is never lost: the note is written with the raw transcript, the transcript file is **kept**, and the terminal prints the exact retry command, e.g.
+
+```bash
+heimdall analyze --file ~/.heimdall/recovery/<file>.json --analyzer ollama
+```
+
+A transcript longer than the local context window (~1.5 h of English) is refused rather than truncated; re-run that command with `--analyzer api` or `--analyzer codex` if you want it analyzed in the cloud.
+
+---
+
+## Scenario 0b: Live Meeting With Soniox (system audio + real speaker separation)
+
+**What it proves**: the two things the first live test could not: (a) system audio is actually captured -- the helper reads a real process tap (ID-017), and (b) Soniox separates the people in the meeting by voice (AD-012). This is the acceptance test for both.
+
+### Prerequisites
+
+```bash
+export SONIOX_API_KEY=your_key          # https://soniox.com/ -- never commit it
+heimdall config set claude.analyzer ollama      # or claude-code / codex / api
+heimdall config set obsidian.vault_path ~/path/to/vault
+make build                               # rebuilds the Swift helper too
+```
+
+Run the **60-second capture preflight** from Scenario 0 first (both checks). Then put **closed headphones on** for the meeting: if your mic can hear the remote voices, the two channels overlap and a meeting-long duplicate-channel warning can be a false alarm from your own room.
+
+### The meeting
+
+```bash
+./bin/heimdall record --title "Soniox live test" --analyzer ollama --save-audio
+# the header must say: Transcriber: soniox (auto: SONIOX_API_KEY is set)
+```
+
+Use a real meeting with at least **two other people** speaking (or play a two-voice recording from a second device), and talk yourself a few times. Ctrl+C at the end.
+
+### Acceptance checklist
+
+- [ ] Header shows `Transcriber: soniox (auto: SONIOX_API_KEY is set)` and the status line reads `STT: soniox (connected)`
+- [ ] Live transcript appears while the meeting runs (Soniox is a streaming provider, unlike `--transcriber whisper`)
+- [ ] **No** `WARNING: the left (system audio) and right (microphone) channels are near-identical` appears at any point
+- [ ] The live display shows **more than one speaker number** for the remote people, and your own voice is consistently a different one from theirs
+- [ ] Turkish (or mixed TR/EN) speech is transcribed in the right language without passing `--language` (the Soniox default here is `multi`)
+- [ ] The note's Action Items and Key Decisions match what was said; speaker names appear only where someone was named out loud
+- [ ] Afterwards: `./bin/heimdall transcribe --file "$(ls -t ~/.heimdall/recordings/*.wav | head -1)" --model medium --language tr` prints **no** duplicate-channel warning, and the transcript has no line repeated more than a couple of times in a row
+- [ ] If Soniox fails mid-meeting: the WAV under `~/.heimdall/recordings/` still holds the whole meeting and `heimdall transcribe --file` recovers it
+
+### If something is off
+
+| Symptom | Meaning |
+|---|---|
+| `raw peak 0.0` in the tap preflight | Screen & System Audio Recording permission missing for your terminal app |
+| duplicate-channel warning during the meeting | the helper is not reading the tap (re-run the preflight), or the same signal reaches both channels through your setup |
+| `unknown or retired model` | `soniox.model` is set to a retired model; use `stt-rt-v5` |
+| auth error from Soniox | wrong or expired `SONIOX_API_KEY`; this is the first live use of the Soniox adapter (AD-012), so report exactly what the terminal prints |
 
 ---
 

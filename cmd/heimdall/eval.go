@@ -15,6 +15,7 @@ import (
 
 var (
 	evalAnalyzer string
+	evalModel    string
 	evalJudge    bool
 	evalJSON     bool
 )
@@ -37,34 +38,43 @@ Exits non-zero if any fixture fails its deterministic checks. Judge scores
 are informative only and never affect the exit code.`,
 	Example: `  heimdall eval                          # deterministic checks only, default (api) analyzer
   heimdall eval --analyzer claude-code    # same checks, via a local Claude Code login
+  heimdall eval --analyzer ollama         # same checks, fully on-device (default model qwen3:14b)
+  heimdall eval --analyzer ollama --model qwen2.5:7b   # compare another local model
   heimdall eval --judge                   # also score faithfulness/coverage via LLM-as-judge
   heimdall eval --json                    # machine-readable output for CI`,
 	RunE: runEval,
 }
 
 func init() {
-	evalCmd.Flags().StringVar(&evalAnalyzer, "analyzer", "api", "meeting-analysis backend under test: api (default) or claude-code")
+	evalCmd.Flags().StringVar(&evalAnalyzer, "analyzer", "api", "meeting-analysis backend under test: "+analyzer.ProviderList()+" (defaults to claude.analyzer from config)")
+	evalCmd.Flags().StringVar(&evalModel, "model", "", "model override for the backend under test (default: the backend's configured/default model)")
 	evalCmd.Flags().BoolVar(&evalJudge, "judge", false, "also score faithfulness/coverage via LLM-as-judge (extra API call per fixture, needs ANTHROPIC_API_KEY)")
 	evalCmd.Flags().BoolVar(&evalJSON, "json", false, "print machine-readable JSON instead of a human-readable report")
 	rootCmd.AddCommand(evalCmd)
 }
 
 func runEval(cmd *cobra.Command, args []string) error {
-	switch evalAnalyzer {
-	case "", analyzer.ProviderAPI, analyzer.ProviderClaudeCode:
-	default:
-		return fmt.Errorf("--analyzer %q is not valid: use %q (default) or %q",
-			evalAnalyzer, analyzer.ProviderAPI, analyzer.ProviderClaudeCode)
+	if err := validateAnalyzerName(evalAnalyzer); err != nil {
+		return err
 	}
+	cfg := loadResolvedConfig()
+	name := resolveAnalyzerName(cmd, evalAnalyzer, cfg)
 
 	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
 
-	a, err := analyzer.NewFromName(evalAnalyzer, anthropicKey)
+	setup, err := newAnalyzerSetup(name, cfg, anthropicKey)
 	if err != nil {
 		return err
 	}
+	model := setup.Model
+	if evalModel != "" {
+		model = evalModel
+	}
 
-	opts := eval.RunOptions{}
+	opts := eval.RunOptions{
+		Model:             model,
+		PerFixtureTimeout: evalFixtureTimeout(setup.Name),
+	}
 	if evalJudge {
 		if anthropicKey == "" {
 			return fmt.Errorf("--judge requires ANTHROPIC_API_KEY (the judge always uses the API directly, regardless of --analyzer)")
@@ -73,16 +83,19 @@ func runEval(cmd *cobra.Command, args []string) error {
 	}
 
 	if !evalJSON {
-		label := "the Anthropic API"
-		if evalAnalyzer == analyzer.ProviderClaudeCode {
-			label = "a local Claude Code login"
+		modelSuffix := ""
+		if model != "" {
+			modelSuffix = ", model " + model
 		}
-		fmt.Printf("heimdall eval -- running %d fixtures via %s%s...\n\n", len(eval.Fixtures()), label, judgeSuffix(evalJudge))
+		fmt.Printf("heimdall eval -- running %d fixtures via %s%s%s...\n\n", len(eval.Fixtures()), setup.Label, modelSuffix, judgeSuffix(evalJudge))
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	// Scale the whole-suite budget with the per-fixture one: a local model
+	// needs minutes per fixture where the API needs seconds.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(len(eval.Fixtures())+1)*opts.PerFixtureTimeout)
 	defer cancel()
 
+	a := setup.Analyzer
 	report := eval.Run(ctx, a, eval.Fixtures(), opts)
 
 	if evalJSON {
@@ -94,6 +107,18 @@ func runEval(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("eval failed")
 	}
 	return nil
+}
+
+// evalFixtureTimeout is the per-fixture Summarize budget. Fixtures are
+// short, so the API keeps the original 60s; a local model's first fixture
+// also pays the cold model load, and Codex runs an agent loop.
+func evalFixtureTimeout(name string) time.Duration {
+	switch name {
+	case analyzer.ProviderOllama, analyzer.ProviderCodex:
+		return 5 * time.Minute
+	default:
+		return eval.DefaultPerFixtureTimeout
+	}
 }
 
 func judgeSuffix(judge bool) string {

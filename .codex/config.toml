@@ -1,0 +1,11 @@
+# Project-scoped Codex defaults for heimdall (loaded for this repo only; your
+# global ~/.codex/config.toml still applies everywhere else, and anything set
+# on the command line -- `codex -m ... -c model_reasoning_effort=...` --
+# overrides this). See AGENTS.md "Codex model policy".
+#
+# Cost policy: use the cheapest model tier that reliably handles the task.
+# The main session defaults to the balanced coding tier at medium effort --
+# enough for everyday Go work here -- instead of a frontier model or
+# high/ultra effort. Per-role subagent models live in .codex/agents/*.toml.
+model = "gpt-5.6-terra"
+model_reasoning_effort = "medium"
